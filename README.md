@@ -9,8 +9,12 @@ instance, so the plugin needs no version check.
 ## Install
 
 ```bash
-pnpm add github:notflip/payload-polyglot
+pnpm add git+https://github.com/notflip/payload-polyglot.git
 ```
+
+Use the full https url, not the `github:` shorthand. pnpm turns the shorthand
+into an SSH url, and a build server such as Vercel has no SSH key, so the
+install fails with "Host key verification failed".
 
 The package builds itself on install, so a git dependency needs nothing extra.
 
@@ -151,8 +155,9 @@ button correctly.
 pnpm update @studiomonty/payload-polyglot
 ```
 
-The repository is private, so the machine that installs it needs access to
-github.com/notflip. Vercel has that through its GitHub connection.
+The repository is public, so no credentials are needed to install it. The
+package reads its secret and its API key from the project environment, never
+from the source.
 
 ## Development
 
