@@ -28,7 +28,7 @@ function titleOf(doc: AnyData, useAsTitle: string | undefined, defaultLocale: st
  *
  * Query: `entity`, `kind`, `state`, `since`, `page`, `limit`.
  *
- * Reads documents with `locale: 'all'` and `fallbackLocale: null`, so an empty
+ * Reads documents with `locale: 'all'` and `fallbackLocale: false`, so an empty
  * target locale stays empty instead of showing the source text.
  */
 export const reportHandler =
@@ -60,7 +60,7 @@ export const reportHandler =
     const locales = context.locales
     const shared = {
       locale: 'all' as const,
-      fallbackLocale: null,
+      fallbackLocale: false,
       depth: 0,
       draft: state === 'draft',
       overrideAccess: false,

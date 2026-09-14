@@ -54,7 +54,15 @@ export type TextSegment = {
   format: number
   /** Index of the enclosing link node inside the unit, when there is one. */
   linkIndex?: number
+  /**
+   * Index of an inline node that holds no text but must keep its place, such
+   * as a line break. Such a segment carries no text of its own.
+   */
+  atomicIndex?: number
 }
+
+/** Inline nodes that carry no text but do change the layout. */
+const ATOMIC_NODES = new Set(['linebreak', 'tab'])
 
 /**
  * Collect every text segment of a lexical document, in reading order.
@@ -64,6 +72,7 @@ export function extractSegments(doc: unknown): TextSegment[] {
   if (!isLexical(doc)) return []
   const out: TextSegment[] = []
   const linkCounters = new Map<string, number>()
+  const atomicCounters = new Map<string, number>()
 
   const walk = (node: AnyNode | undefined, addr: string, unit: string, linkIndex?: number): void => {
     if (!node || typeof node !== 'object') return
@@ -78,6 +87,13 @@ export function extractSegments(doc: unknown): TextSegment[] {
       }
       if (linkIndex !== undefined) segment.linkIndex = linkIndex
       out.push(segment)
+      return
+    }
+
+    if (ATOMIC_NODES.has(type)) {
+      const seen = atomicCounters.get(unit) ?? 0
+      atomicCounters.set(unit, seen + 1)
+      out.push({ addr, unit, text: '', format: 0, atomicIndex: seen })
       return
     }
 
@@ -196,6 +212,15 @@ export function renderTagged(segments: TextSegment[]): string {
   }
 
   for (const segment of segments) {
+    if (segment.atomicIndex !== undefined) {
+      closeFormats(0)
+      if (openLink !== undefined) {
+        out += '</a>'
+        openLink = undefined
+      }
+      out += `<x k="${segment.atomicIndex}"/>`
+      continue
+    }
     if (segment.linkIndex !== openLink) {
       closeFormats(0)
       if (openLink !== undefined) out += '</a>'
@@ -217,7 +242,7 @@ export function renderTagged(segments: TextSegment[]): string {
   return out
 }
 
-export type TaggedRun = { text: string; format: number; linkIndex?: number }
+export type TaggedRun = { text: string; format: number; linkIndex?: number; atomicIndex?: number }
 
 /** Parse a tagged string back into runs of text with a format mask and a link index. */
 export function parseTagged(tagged: string): TaggedRun[] {
@@ -261,6 +286,13 @@ export function parseTagged(tagged: string): TaggedRun[] {
           if (at !== -1) formatStack.splice(at, 1)
         }
       }
+      continue
+    }
+
+    const atomicMatch = /^x\s+k="(\d+)"\s*\/?$/.exec(raw)
+    if (atomicMatch) {
+      flush()
+      runs.push({ text: '', format: 0, atomicIndex: Number(atomicMatch[1]) })
       continue
     }
 
@@ -332,14 +364,27 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
     throw new TagMismatchError(`unit ${unit}: link indices do not match the source`)
   }
 
-  // Keep the original link nodes so their fields survive.
+  const sourceAtomics = new Set(source.filter((s) => s.atomicIndex !== undefined).map((s) => s.atomicIndex))
+  const runAtomics = new Set(runs.filter((r) => r.atomicIndex !== undefined).map((r) => r.atomicIndex))
+  if (sourceAtomics.size !== runAtomics.size || [...runAtomics].some((k) => !sourceAtomics.has(k))) {
+    throw new TagMismatchError(`unit ${unit}: line breaks do not match the source`)
+  }
+
+  // Keep the original link and line break nodes, so their fields and their
+  // exact node shape survive the translation.
   const linkNodes = new Map<number, AnyNode>()
-  let seen = 0
+  const atomicNodes = new Map<number, AnyNode>()
+  let linkSeen = 0
+  let atomicSeen = 0
   const collect = (node: AnyNode | undefined) => {
     if (!node || typeof node !== 'object') return
     const type = String(node.type ?? '')
+    if (ATOMIC_NODES.has(type)) {
+      atomicNodes.set(atomicSeen++, node)
+      return
+    }
     if (type === 'link' || type === 'autolink') {
-      linkNodes.set(seen++, node)
+      linkNodes.set(linkSeen++, node)
       return
     }
     for (const child of node.children ?? []) collect(child)
@@ -362,8 +407,13 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
   let index = 0
   while (index < runs.length) {
     const run = runs[index]!
+    if (run.atomicIndex !== undefined) {
+      children.push(atomicNodes.get(run.atomicIndex) ?? { type: 'linebreak', version: 1 })
+      index++
+      continue
+    }
     if (run.linkIndex === undefined) {
-      children.push(makeText(run))
+      if (run.text !== '') children.push(makeText(run))
       index++
       continue
     }
@@ -399,7 +449,9 @@ function findFirstTextNode(node: AnyNode | undefined): AnyNode | undefined {
 export function applySegments(doc: LexicalRoot, replacements: Map<string, string>): void {
   const walk = (node: AnyNode | undefined, addr: string): void => {
     if (!node || typeof node !== 'object') return
-    if (String(node.type ?? '') === 'text') {
+    const type = String(node.type ?? '')
+    if (ATOMIC_NODES.has(type)) return
+    if (type === 'text') {
       const next = replacements.get(addr)
       if (next !== undefined) node.text = next
       return
@@ -429,11 +481,14 @@ export function assertRoundTrip(source: unknown, rebuilt: unknown): void {
     if (unit.unit !== other.unit) {
       throw new TagMismatchError(`unit address changed: ${unit.unit} -> ${other.unit}`)
     }
-    const links = (list: TextSegment[]) =>
-      [...new Set(list.filter((s) => s.linkIndex !== undefined).map((s) => s.linkIndex))].sort()
-    const a = links(unit.segments).join(',')
-    const b = links(other.segments).join(',')
-    if (a !== b) throw new TagMismatchError(`unit ${unit.unit}: link set changed`)
+    const marks = (list: TextSegment[]) =>
+      [
+        ...new Set(list.filter((s) => s.linkIndex !== undefined).map((s) => `a${s.linkIndex}`)),
+        ...new Set(list.filter((s) => s.atomicIndex !== undefined).map((s) => `x${s.atomicIndex}`)),
+      ].sort()
+    const a = marks(unit.segments).join(',')
+    const b = marks(other.segments).join(',')
+    if (a !== b) throw new TagMismatchError(`unit ${unit.unit}: link or line break set changed`)
   }
 }
 

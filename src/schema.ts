@@ -267,12 +267,16 @@ export function describeTree(nodes: SchemaNode[]): {
         }
       }
       if (leaves.length > before) {
-        containers.push({
+        const container: ContainerDescriptor = {
           path: `${prefix}${node.name}[]`,
           type: node.nodeKind === 'array' ? 'array' : 'blocks',
           label: node.label,
           localeScoped: scoped,
-        })
+        }
+        if (node.nodeKind === 'blocks') {
+          container.blocks = node.blocks.map((block) => ({ slug: block.slug, label: block.label }))
+        }
+        containers.push(container)
       }
     }
   }

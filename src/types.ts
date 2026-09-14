@@ -49,6 +49,8 @@ export type ContainerDescriptor = {
    * can differ between locales.
    */
   localeScoped: boolean
+  /** For a blocks field: the block types it accepts, with their labels. */
+  blocks?: { slug: string; label: string }[]
 }
 
 export type EntityManifest = {

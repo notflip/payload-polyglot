@@ -92,9 +92,12 @@ read, `423` when another editor holds the Payload lock.
 
 Each rule below prevents real data loss.
 
-- `fallbackLocale: null` on the read. Without it every untouched localized field
+- `fallbackLocale: false` on the read. Without it every untouched localized field
   comes back holding the source text, and the write stores that text as genuine
-  content in the target locale.
+  content in the target locale. Payload accepts `false`, `'false'`, `'null'` or
+  `'none'` here. Plain JavaScript `null` is ignored without an error, so the
+  fallback stays on. A project with the default `fallback: true` then has its
+  source language written into every other locale.
 - Array and block items keep their `id`. Payload otherwise deletes and recreates
   the rows. A recreated row loses the translations of every other locale.
 - `depth: 0`. A populated relationship would be written back as an object.
@@ -129,12 +132,16 @@ pnpm test        # 25 unit tests, no database needed
 pnpm typecheck
 ```
 
-Verified against `child-focus-web` (Payload 3.86, `nl` and `fr`, drafts with
-autosave, `fallback: false`, nested-docs and SEO plugins):
+Verified against `child-focus-web` (Payload 3.86, `nl` and `fr`, `fallback: false`,
+drafts with autosave, nested-docs and SEO plugins) and `anndeman` (Payload 3.88,
+`nl` and `en`, the default `fallback: true`, drafts, rich text with links and
+line breaks):
 
 - the manifest lists 30 localized fields with their Dutch labels
 - the report finds the real gaps, and Payload's trash filter is respected
-- a write to one locale leaves every other locale untouched
+- a write to one locale leaves every other locale untouched, and leaves the
+  untouched fields of the same block empty rather than filling them with the
+  source language
 - a write creates one new version row and does not touch the published rows
 - a stale `updatedAt` returns `409`, a derived field returns `400`, an unknown
   path returns `404`, and a wrong or missing secret returns `403`

@@ -16,6 +16,11 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js",
       "default": "./dist/types.js"
+    },
+    "./lexical": {
+      "types": "./dist/lexical.d.ts",
+      "import": "./dist/lexical.js",
+      "default": "./dist/lexical.js"
     }
   },
   "files": [

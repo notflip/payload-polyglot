@@ -58,7 +58,7 @@ function hashOf(value: unknown): string {
  * Writes one or more translations into one locale of one document.
  *
  * Every rule below is load bearing:
- * - `fallbackLocale: null` on the read. Without it every untouched localized
+ * - `fallbackLocale: false` on the read. Without it every untouched localized
  *   field comes back holding the source text, and the write stores that text as
  *   real content in the target locale.
  * - `depth: 0`. A populated relationship would be written back as an object.
@@ -114,7 +114,7 @@ export const applyHandler =
     try {
       const read = {
         locale: request.locale,
-        fallbackLocale: null,
+        fallbackLocale: false,
         depth: 0,
         draft,
         overrideAccess: false,

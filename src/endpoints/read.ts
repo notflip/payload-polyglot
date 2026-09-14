@@ -12,7 +12,7 @@ type AnyData = Record<string, any>
  * Query: `entity`, `kind`, `id`, `source`, `target`, `state`.
  *
  * Returns the full values of one document in two locales, for the side by side
- * editor. `fallbackLocale: null` is what keeps an empty target empty.
+ * editor. `fallbackLocale: false` is what keeps an empty target empty.
  */
 export const readHandler =
   (options: PolyglotOptions) =>
@@ -41,7 +41,7 @@ export const readHandler =
     }
 
     const base = {
-      fallbackLocale: null,
+      fallbackLocale: false,
       depth: 0,
       draft: state === 'draft',
       overrideAccess: false,
