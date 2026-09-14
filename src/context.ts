@@ -7,7 +7,7 @@ import type { EntityManifest, LocaleDescriptor, Manifest } from './types.js'
 
 type AnyPayload = Record<string, any>
 
-export const POLYGLOT_VERSION = '0.1.0'
+export const POLYGLOT_VERSION = '0.2.0'
 
 /**
  * The version of the Payload package this project runs.

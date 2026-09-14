@@ -4,13 +4,20 @@ type AnyReq = Record<string, any>
 
 export type PolyglotOptions = {
   /**
-   * Shared secret. Every request must send it as `x-polyglot-secret`.
-   * Leave it empty only on a local machine that is not reachable from outside.
+   * An extra shared secret, sent as `x-polyglot-secret`.
+   *
+   * The API key is what grants access. This secret is a second lock in front
+   * of it, so a leaked key is not enough on its own. Set it on any project
+   * that uses `admin.autoLogin`, because Payload then signs in every request
+   * in development and the user check protects nothing there.
    */
   secret?: string
   /** Language of the field labels in the manifest. Default `nl`. */
   labelLanguage?: string
-  /** Extra check on top of the secret. Default: a write needs a logged-in user. */
+  /**
+   * Who may use these endpoints. The default asks for a logged-in user, which
+   * an API key provides. Tighten it to a role if the project needs that.
+   */
   access?: (args: { req: AnyReq; write: boolean }) => boolean | Promise<boolean>
   /** Base path of the endpoints. Default `/polyglot`. */
   path?: string
@@ -52,9 +59,15 @@ export async function guard(
     if (!secretsMatch(String(given), expected)) return json(403, { ok: false, code: 'forbidden', message: 'bad secret' })
   }
 
-  const check = options.access ?? (({ req: r, write: w }) => (w ? Boolean(r.user) : true))
+  // Reading the translation state lists every field, every path and a preview
+  // of every value, so it asks for the same credential as writing.
+  const check = options.access ?? (({ req: r }) => Boolean(r.user))
   if (!(await check({ req, write }))) {
-    return json(403, { ok: false, code: 'forbidden', message: 'access denied' })
+    return json(403, {
+      ok: false,
+      code: 'forbidden',
+      message: 'no user on this request: send an API key of a Payload user',
+    })
   }
   return null
 }

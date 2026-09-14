@@ -34,13 +34,23 @@ Add the secret to `.env`:
 POLYGLOT_SECRET=<a long random string>
 ```
 
-Generate one with `openssl rand -hex 32`.
+Generate one with `openssl rand -hex 32`. This is optional; read
+"Which credential does what" below before leaving it out.
+
+Then turn on an API key so Polyglot can sign in:
+
+```ts
+// src/collections/Users.ts
+auth: { useAPIKey: true },
+```
+
+Open your user in the Payload admin, tick **Enable API Key**, and copy it.
 
 ## Options
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `secret` | none | Shared secret. Every request must send it as `x-polyglot-secret`. Leave empty only on a machine that is not reachable from outside. |
+| `secret` | none | An extra shared secret, sent as `x-polyglot-secret`. Optional. See below. |
 | `labelLanguage` | `nl` | Language of the field labels in the manifest. |
 | `access` | a write needs a logged-in user | Extra check on top of the secret. |
 | `path` | `/polyglot` | Base path of the endpoints. |
@@ -107,15 +117,26 @@ Each rule below prevents real data loss.
 - Fields named `path` and `breadcrumbs` are refused. The nested-docs plugin owns
   them.
 
-## A warning about `admin.autoLogin`
+## Which credential does what
 
-A project that sets `admin.autoLogin` authenticates **every** REST request in
-development, with no credentials at all. `req.user` is then always set, so the
-default access rule passes and the shared secret is the only protection left.
+**The API key is the credential.** Every endpoint, read as well as write, asks
+for a logged-in Payload user. An API key of a user provides that, and Payload
+then applies that user's own access rules: a collection the user cannot read
+stays invisible.
 
-This is a property of the project config, not of the plugin. In production
-`autoLogin` is normally off, and the user check applies again. Keep `secret`
-set, and do not expose a development server to a network you do not control.
+Reading is guarded as strictly as writing on purpose. `GET /report` lists every
+field, every path and a preview of every value in every language. That is the
+whole content of the site, so it is not a public thing.
+
+**The secret is a second lock, and it is optional.** It protects two cases:
+
+- A project with `admin.autoLogin` signs in **every** request in development,
+  with no credentials at all. The user check then protects nothing, and the
+  secret is all that is left. Set it on those projects.
+- A leaked API key is not enough on its own while a secret is also set.
+
+If neither case applies, the API key alone is enough and `secret` can be left
+out.
 
 ## Publishing
 
