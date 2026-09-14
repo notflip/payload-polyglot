@@ -21,6 +21,11 @@
       "types": "./dist/lexical.d.ts",
       "import": "./dist/lexical.js",
       "default": "./dist/lexical.js"
+    },
+    "./status": {
+      "types": "./dist/status.d.ts",
+      "import": "./dist/status.js",
+      "default": "./dist/status.js"
     }
   },
   "files": [
