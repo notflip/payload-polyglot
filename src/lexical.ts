@@ -155,12 +155,23 @@ export function hasMediaNodes(doc: unknown): boolean {
 // Units and the tagged form
 // ---------------------------------------------------------------------------
 
+export type UnitLink = {
+  /** The number in `<a k="0">`. */
+  index: number
+  /** Where it points, in a form a person recognises. */
+  target: string
+  /** `page` when it points at a document of this project, `address` otherwise. */
+  kind: 'page' | 'address'
+}
+
 export type TranslationUnit = {
   /** Address of the block-level node. */
   unit: string
   /** The unit as one string with inline tags. */
   tagged: string
   segments: TextSegment[]
+  /** What each `<a k="N">` of this unit points at, so a reader can see it. */
+  links: UnitLink[]
 }
 
 /**
@@ -183,7 +194,49 @@ export function toUnits(doc: unknown): TranslationUnit[] {
     unit,
     tagged: renderTagged(list),
     segments: list,
+    links: describeLinks(doc, unit),
   }))
+}
+
+/**
+ * What the links of one unit point at.
+ *
+ * `<a k="0">` carries no address on purpose: the target must survive the
+ * translation untouched, and an internal link points at a document rather than
+ * at a URL. Naming them here lets a reader see which is which without being
+ * able to break one.
+ */
+function describeLinks(doc: unknown, unit: string): UnitLink[] {
+  if (!isLexical(doc)) return []
+  const parent = getByAddr(doc, unit)
+  if (!parent) return []
+
+  const links: UnitLink[] = []
+  const walk = (node: AnyNode | undefined): void => {
+    if (!node || typeof node !== 'object') return
+    const type = String(node.type ?? '')
+    if (type === 'link' || type === 'autolink') {
+      const fields = (node.fields ?? {}) as Record<string, any>
+      const url = typeof fields.url === 'string' ? fields.url : ''
+      const related = fields.doc
+      if (url) {
+        links.push({ index: links.length, target: url, kind: 'address' })
+      } else if (related) {
+        const value = typeof related.value === 'object' ? related.value?.id : related.value
+        links.push({
+          index: links.length,
+          target: `${related.relationTo ?? 'document'} ${value ?? '?'}`,
+          kind: 'page',
+        })
+      } else {
+        links.push({ index: links.length, target: 'a link', kind: 'address' })
+      }
+      return
+    }
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(parent)
+  return links
 }
 
 function escapeText(text: string): string {

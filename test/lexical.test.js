@@ -214,3 +214,21 @@ test('two links in one unit keep their own fields', () => {
   assert.equal(children[0].text, 'Call ')
   assertRoundTrip(doc, target)
 })
+
+test('a unit says what each of its links points at', () => {
+  const doc = {
+    root: { type: 'root', children: [{ type: 'paragraph', version: 1, children: [
+      text('Bel '),
+      { type: 'link', version: 3, fields: { url: 'tel:0032478882301', newTab: true, linkType: 'custom' },
+        children: [text('00 32 478 88 23 01')] },
+      text(' of lees '),
+      { type: 'link', version: 3, fields: { linkType: 'internal', doc: { relationTo: 'pages', value: 7 } },
+        children: [text('deze pagina')] },
+    ] }] },
+  }
+  const unit = toUnits(doc)[0]
+  assert.deepEqual(unit.links, [
+    { index: 0, target: 'tel:0032478882301', kind: 'address' },
+    { index: 1, target: 'pages 7', kind: 'page' },
+  ])
+})
