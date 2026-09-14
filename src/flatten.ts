@@ -71,8 +71,23 @@ type Draft = {
   role: LeafRole
   label: string
   blockSlug?: string
+  rowTitle?: string
   localeScoped: boolean
   values: Record<string, UnitValue>
+}
+
+/**
+ * The value that names a row. A field read with `locale: 'all'` arrives as a
+ * map, so the first entry is taken: a key is the same in every language.
+ */
+function readTitle(value: unknown): string | undefined {
+  if (typeof value === 'string') return value || undefined
+  if (value && typeof value === 'object') {
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      if (typeof entry === 'string' && entry !== '') return entry
+    }
+  }
+  return undefined
 }
 
 /**
@@ -115,6 +130,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
     blockSlug: string | undefined,
     localeCtx: string | null,
     scoped: boolean,
+    rowTitle?: string,
   ): void => {
     if (data === null || data === undefined || typeof data !== 'object') return
     const object = data as AnyData
@@ -134,6 +150,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
           localeScoped: scoped,
         }
         if (blockSlug) draft.blockSlug = blockSlug
+        if (rowTitle) draft.rowTitle = rowTitle
 
         if (localeCtx !== null) {
           // Inside a locale-scoped branch the value is already plain.
@@ -159,7 +176,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
             visit(node.children, byLocale[locale], nextPath, nextTemplate, blockSlug, locale, true)
           }
         } else {
-          visit(node.children, next, nextPath, nextTemplate, blockSlug, localeCtx, scoped)
+          visit(node.children, next, nextPath, nextTemplate, blockSlug, localeCtx, scoped, rowTitle)
         }
         continue
       }
@@ -173,14 +190,17 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
         for (const [index, item] of list.entries()) {
           const itemPath = `${path}${node.name}[${index}].`
           if (node.nodeKind === 'array') {
-            visit(node.children, item, itemPath, `${template}${node.name}[].`, blockSlug, locale, nextScoped)
+            // The row is named by one of its own fields, so the reader sees the
+            // key of a string rather than "Value" repeated down the list.
+            const title = node.titleField ? readTitle((item as AnyData)?.[node.titleField]) : undefined
+            visit(node.children, item, itemPath, `${template}${node.name}[].`, blockSlug, locale, nextScoped, title)
           } else {
             const slug = String((item as AnyData)?.blockType ?? '')
             const block = node.blocks.find((b) => b.slug === slug)
             // The template carries the block slug, so two blocks that both have
             // a `title` do not collapse into one path.
             if (block) {
-              visit(block.children, item, itemPath, `${template}${node.name}[${slug}].`, block.slug, locale, nextScoped)
+              visit(block.children, item, itemPath, `${template}${node.name}[${slug}].`, block.slug, locale, nextScoped, rowTitle)
             }
           }
         }
@@ -195,7 +215,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
     }
   }
 
-  visit(tree, doc, '', '', undefined, null, false)
+  visit(tree, doc, '', '', undefined, null, false, undefined)
 
   // A path that one locale produced and another did not means the row is absent.
   const units: ReportUnit[] = []

@@ -251,3 +251,56 @@ test('collects the raw values of one locale', () => {
   assert.equal(values['seo.title'], 'Home | Child Focus')
   assert.equal(values['highlights[0].text'], 'Eén')
 })
+
+test('an array row is named by its key field', () => {
+  const fields = [
+    {
+      name: 'items',
+      type: 'array',
+      label: 'Teksten',
+      fields: [
+        { name: 'key', type: 'text', required: true },
+        { name: 'value', type: 'text', label: 'Waarde', localized: true },
+      ],
+    },
+  ]
+  const built = walkFields(fields, 'nl', false)
+  const { containers } = describeTree(built)
+  assert.equal(containers[0].titleField, 'key')
+
+  const doc = {
+    items: [
+      { id: 'a', key: 'Navigation.search', value: { nl: 'Zoeken', en: '' } },
+      { id: 'b', key: 'Form.send', value: { nl: 'Verstuur', en: 'Send' } },
+    ],
+  }
+  const units = collectUnits(built, doc, ['nl', 'en'])
+  assert.deepEqual(
+    units.map((unit) => [unit.path, unit.rowTitle]),
+    [
+      ['items[0].value', 'Navigation.search'],
+      ['items[1].value', 'Form.send'],
+    ],
+  )
+  // The key itself is not translated, so it is not offered as work.
+  assert.equal(units.some((unit) => unit.path.endsWith('.key')), false)
+})
+
+test('a field that is not translated is preferred as the row name', () => {
+  const built = walkFields(
+    [
+      {
+        name: 'items',
+        type: 'array',
+        fields: [
+          { name: 'title', type: 'text', localized: true },
+          { name: 'name', type: 'text' },
+        ],
+      },
+    ],
+    'nl',
+    false,
+  )
+  // `name` wins over `title`: a key stays the same in every language.
+  assert.equal(describeTree(built).containers[0].titleField, 'name')
+})

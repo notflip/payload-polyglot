@@ -51,6 +51,8 @@ export type ContainerDescriptor = {
   localeScoped: boolean
   /** For a blocks field: the block types it accepts, with their labels. */
   blocks?: { slug: string; label: string }[]
+  /** For an array: the child whose value names a row, such as `key`. */
+  titleField?: string
 }
 
 export type EntityManifest = {
@@ -119,6 +121,8 @@ export type ReportUnit = {
   role: LeafRole
   label: string
   blockSlug?: string
+  /** What the row this field sits in is called, such as the key of a string. */
+  rowTitle?: string
   /**
    * True when this path sits inside a locale-scoped container.
    * The hub must not compare structure across locales for these.

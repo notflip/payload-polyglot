@@ -48,6 +48,28 @@ export type ArrayNode = {
   label: string
   localeBoundary: boolean
   children: SchemaNode[]
+  /**
+   * The child that names a row. A list of `{ key, value }` pairs reads as
+   * "Value, Value, Value" without it.
+   */
+  titleField?: string
+}
+
+/**
+ * Names that identify a row rather than describe it, best first. A field that
+ * is not translated is preferred: a key stays the same in every language.
+ */
+const ROW_TITLE_NAMES = ['key', 'name', 'slug', 'label', 'title', 'heading', 'question']
+
+function findTitleField(children: SchemaNode[]): string | undefined {
+  const leaves = children.filter((node): node is LeafNode => node.nodeKind === 'leaf' && node.type === 'text')
+  for (const preferLiteral of [true, false]) {
+    for (const candidate of ROW_TITLE_NAMES) {
+      const found = leaves.find((leaf) => leaf.name === candidate && leaf.localized !== preferLiteral)
+      if (found) return found.name
+    }
+  }
+  return undefined
 }
 
 export type BlocksNode = {
@@ -167,13 +189,17 @@ export function walkFields(
     }
 
     if (type === 'array') {
-      nodes.push({
+      const children = walkFields(field.fields, lang, inheritedLocalized || localized)
+      const node: ArrayNode = {
         nodeKind: 'array',
         name,
         label: readLabel(field.label, name, lang),
         localeBoundary: localized,
-        children: walkFields(field.fields, lang, inheritedLocalized || localized),
-      })
+        children,
+      }
+      const titleField = findTitleField(children)
+      if (titleField) node.titleField = titleField
+      nodes.push(node)
       continue
     }
 
@@ -276,6 +302,7 @@ export function describeTree(nodes: SchemaNode[]): {
         if (node.nodeKind === 'blocks') {
           container.blocks = node.blocks.map((block) => ({ slug: block.slug, label: block.label }))
         }
+        if (node.nodeKind === 'array' && node.titleField) container.titleField = node.titleField
         containers.push(container)
       }
     }
