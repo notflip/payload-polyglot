@@ -59,5 +59,13 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/notflip/payload-polyglot.git"
+  },
+  "homepage": "https://github.com/notflip/payload-polyglot#readme",
+  "bugs": {
+    "url": "https://github.com/notflip/payload-polyglot/issues"
   }
 }

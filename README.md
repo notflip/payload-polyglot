@@ -8,11 +8,11 @@ instance, so the plugin needs no version check.
 
 ## Install
 
-While the hub is in development, install from the local path:
-
 ```bash
-pnpm add file:/Users/miguelstevens/payload-translation-check/packages/payload-polyglot
+pnpm add github:notflip/payload-polyglot
 ```
+
+The package builds itself on install, so a git dependency needs nothing extra.
 
 Add the plugin to the config:
 
