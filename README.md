@@ -124,6 +124,15 @@ uses `publishAllLocales`. When Payload does not localize `_status`, both publish
 the whole document. The manifest reports `statusScope`, so the hub can label the
 button correctly.
 
+## Updating the plugin in a project
+
+```bash
+pnpm update @studiomonty/payload-polyglot
+```
+
+The repository is private, so the machine that installs it needs access to
+github.com/notflip. Vercel has that through its GitHub connection.
+
 ## Development
 
 ```bash
