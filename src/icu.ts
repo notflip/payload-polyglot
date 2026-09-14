@@ -58,6 +58,39 @@ export function placeholdersOf(message: string): string[] {
   return [...found].sort()
 }
 
+/**
+ * The tags in a message, and whether they nest correctly.
+ *
+ * next-intl formats rich text with tags of the author's own choosing:
+ *
+ *   "Lees onze <link>voorwaarden</link>"
+ *
+ * `t.rich` supplies a component for each name. A tag with no component throws,
+ * so the names must match on both sides. A tag with no children still needs a
+ * closing tag, because the parser asks for one: `<br></br>`.
+ *
+ * Only a real tag counts. A stray `<` in ordinary text, such as "a < b", is
+ * left alone.
+ */
+export function tagsOf(message: string): { names: string[]; balanced: boolean } {
+  const names = new Set<string>()
+  const stack: string[] = []
+  let balanced = true
+
+  for (const match of message.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9_-]*)\s*>/g)) {
+    const closing = match[1] === '/'
+    const name = match[2]!
+    names.add(name)
+    if (closing) {
+      if (stack.pop() !== name) balanced = false
+    } else {
+      stack.push(name)
+    }
+  }
+
+  return { names: [...names].sort(), balanced: balanced && stack.length === 0 }
+}
+
 /** True when the braces do not balance, which next-intl cannot parse at all. */
 export function isMalformed(message: string): boolean {
   let depth = 0
@@ -115,14 +148,27 @@ export function checkMessage(source: string, target: string): MessageProblem | n
     }
   }
 
+  const targetTags = tagsOf(target)
+  if (!targetTags.balanced) {
+    return {
+      level: 'error',
+      malformed: true,
+      missing: [],
+      unknown: [],
+      message: 'the tags do not close in the right order',
+    }
+  }
+
   if (!source) return null
-  const before = placeholdersOf(source)
-  const after = placeholdersOf(target)
-  const missing = before.filter((name) => !after.includes(name))
-  const unknown = after.filter((name) => !before.includes(name))
+
+  const sourceNames = [...placeholdersOf(source), ...tagsOf(source).names.map((name) => `<${name}>`)]
+  const targetNames = [...placeholdersOf(target), ...targetTags.names.map((name) => `<${name}>`)]
+  const missing = sourceNames.filter((name) => !targetNames.includes(name))
+  const unknown = targetNames.filter((name) => !sourceNames.includes(name))
   if (missing.length === 0 && unknown.length === 0) return null
 
-  const named = (names: string[]) => names.map((name) => `{${name}}`).join(', ')
+  const named = (names: string[]) =>
+    names.map((name) => (name.startsWith('<') ? name : `{${name}}`)).join(', ')
   const parts: string[] = []
   if (unknown.length > 0) parts.push(`nothing supplies ${named(unknown)}`)
   if (missing.length > 0) parts.push(`${named(missing)} is not used`)
@@ -130,8 +176,8 @@ export function checkMessage(source: string, target: string): MessageProblem | n
   return {
     level: unknown.length > 0 ? 'error' : 'warning',
     malformed: false,
-    missing,
-    unknown,
+    missing: missing.map((name) => name.replace(/^[<{]|[>}]$/g, '')),
+    unknown: unknown.map((name) => name.replace(/^[<{]|[>}]$/g, '')),
     message: parts.join(', '),
   }
 }
