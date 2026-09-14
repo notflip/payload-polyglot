@@ -104,6 +104,16 @@ Each rule below prevents real data loss.
 - Fields named `path` and `breadcrumbs` are refused. The nested-docs plugin owns
   them.
 
+## A warning about `admin.autoLogin`
+
+A project that sets `admin.autoLogin` authenticates **every** REST request in
+development, with no credentials at all. `req.user` is then always set, so the
+default access rule passes and the shared secret is the only protection left.
+
+This is a property of the project config, not of the plugin. In production
+`autoLogin` is normally off, and the user check applies again. Keep `secret`
+set, and do not expose a development server to a network you do not control.
+
 ## Publishing
 
 `publish: "locale"` sets `_status` on the request locale only. `publish: "all"`
@@ -115,6 +125,16 @@ button correctly.
 
 ```bash
 pnpm build       # compile to dist
-pnpm test        # 23 unit tests, no database needed
+pnpm test        # 25 unit tests, no database needed
 pnpm typecheck
 ```
+
+Verified against `child-focus-web` (Payload 3.86, `nl` and `fr`, drafts with
+autosave, `fallback: false`, nested-docs and SEO plugins):
+
+- the manifest lists 30 localized fields with their Dutch labels
+- the report finds the real gaps, and Payload's trash filter is respected
+- a write to one locale leaves every other locale untouched
+- a write creates one new version row and does not touch the published rows
+- a stale `updatedAt` returns `409`, a derived field returns `400`, an unknown
+  path returns `404`, and a wrong or missing secret returns `403`

@@ -44,6 +44,9 @@ export const reportHandler =
     const since = params.get('since')
     const page = Math.max(1, Number(params.get('page') ?? 1) || 1)
     const limit = Math.min(MAX_LIMIT, Math.max(1, Number(params.get('limit') ?? 50) || 50))
+    // Payload keeps a deleted document in the trash. The hub asks for those
+    // only when it wants to show them.
+    const trash = params.get('trash') === 'true'
 
     const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')
     const entity = context.entities.get(`${kind}:${slug}`)
@@ -80,6 +83,7 @@ export const reportHandler =
         limit,
         page,
         sort: 'id',
+        trash,
         ...(where ? { where } : {}),
       })) as AnyData
       totalDocs = Number(result.totalDocs ?? 0)

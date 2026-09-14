@@ -121,7 +121,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
 
     for (const node of nodes) {
       if (node.nodeKind === 'leaf') {
-        if (!node.localized || node.name === '_status') continue
+        if (!node.localized || node.name === '_status' || node.name === 'id') continue
         const leafPath = path + node.name
         const leafTemplate = template + node.name
         const raw = object[node.name]
@@ -172,13 +172,16 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
         if (!Array.isArray(list)) return
         for (const [index, item] of list.entries()) {
           const itemPath = `${path}${node.name}[${index}].`
-          const itemTemplate = `${template}${node.name}[].`
           if (node.nodeKind === 'array') {
-            visit(node.children, item, itemPath, itemTemplate, blockSlug, locale, nextScoped)
+            visit(node.children, item, itemPath, `${template}${node.name}[].`, blockSlug, locale, nextScoped)
           } else {
             const slug = String((item as AnyData)?.blockType ?? '')
             const block = node.blocks.find((b) => b.slug === slug)
-            if (block) visit(block.children, item, itemPath, itemTemplate, block.slug, locale, nextScoped)
+            // The template carries the block slug, so two blocks that both have
+            // a `title` do not collapse into one path.
+            if (block) {
+              visit(block.children, item, itemPath, `${template}${node.name}[${slug}].`, block.slug, locale, nextScoped)
+            }
           }
         }
       }
@@ -213,7 +216,9 @@ export function collectValues(tree: SchemaNode[], doc: AnyData): Record<string, 
     const object = data as AnyData
     for (const node of nodes) {
       if (node.nodeKind === 'leaf') {
-        if (node.localized) out[path + node.name] = object[node.name] ?? null
+        if (node.localized && node.name !== '_status' && node.name !== 'id') {
+          out[path + node.name] = object[node.name] ?? null
+        }
         continue
       }
       if (node.nodeKind === 'object') {

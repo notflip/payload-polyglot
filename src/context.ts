@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { describeTree, hasLocalizedLeaf, readLabel, resolveStatusScope, walkFields } from './schema.js'
 import type { EntitySchema, SchemaNode } from './schema.js'
 import type { EntityManifest, LocaleDescriptor, Manifest } from './types.js'
@@ -5,6 +8,41 @@ import type { EntityManifest, LocaleDescriptor, Manifest } from './types.js'
 type AnyPayload = Record<string, any>
 
 export const POLYGLOT_VERSION = '0.1.0'
+
+/**
+ * The version of the Payload package this project runs.
+ * The package does not export `package.json`, so the file is found by walking
+ * up from the resolved entry point.
+ */
+function payloadVersion(): string {
+  const require = createRequire(import.meta.url)
+  const roots: string[] = []
+  try {
+    roots.push(dirname(require.resolve('payload')))
+  } catch {
+    // The bundler may hide the module from a runtime resolve.
+  }
+  roots.push(process.cwd())
+
+  for (const root of roots) {
+    let dir = root
+    for (let depth = 0; depth < 8; depth++) {
+      for (const candidate of [join(dir, 'package.json'), join(dir, 'node_modules', 'payload', 'package.json')]) {
+        try {
+          if (!existsSync(candidate)) continue
+          const pkg = JSON.parse(readFileSync(candidate, 'utf8')) as { name?: string; version?: string }
+          if (pkg.name === 'payload' && pkg.version) return pkg.version
+        } catch {
+          // A file that cannot be read is simply not the one we need.
+        }
+      }
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  }
+  return 'unknown'
+}
 
 /** Locales that read right to left. The hub uses this to flip the editor. */
 const RTL_LOCALES = new Set(['ar', 'he', 'fa', 'ur', 'yi', 'dv', 'ps'])
@@ -104,7 +142,7 @@ export function buildContext(payload: AnyPayload, labelLanguage: string): Polygl
   return {
     manifest: {
       polyglotVersion: POLYGLOT_VERSION,
-      payloadVersion: String((payload as AnyPayload).version ?? config.version ?? 'unknown'),
+      payloadVersion: payloadVersion(),
       localization: {
         locales: localization.locales,
         defaultLocale: localization.defaultLocale,

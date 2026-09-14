@@ -54,10 +54,14 @@ export const readHandler =
         ? await req.payload.findGlobal({ slug, locale, ...base })
         : await req.payload.findByID({ collection: slug, id, locale, ...base })
 
+    // These reads run one after the other on purpose. Payload writes the active
+    // locale onto the request object, so two reads that share one request race
+    // and both return the locale of whichever call ran last.
     let sourceDoc: AnyData
     let targetDoc: AnyData
     try {
-      ;[sourceDoc, targetDoc] = await Promise.all([load(source), load(target)])
+      sourceDoc = await load(source)
+      targetDoc = await load(target)
     } catch (error) {
       return json(404, {
         ok: false,

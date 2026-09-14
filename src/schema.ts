@@ -230,9 +230,11 @@ export function describeTree(nodes: SchemaNode[]): {
       if (node.nodeKind === 'leaf') {
         // A leaf only reaches the manifest when it is stored per locale.
         if (!node.localized) continue
-        // Payload injects `_status`. The report carries it on the document.
-        if (node.name === '_status') continue
+        // Payload injects `_status` and an `id` on every array row.
+        // Neither is content.
+        if (node.name === '_status' || node.name === 'id') continue
         const path = prefix + node.name
+        const role = classifyRole(node.name, path)
         const descriptor: LeafDescriptor = {
           path,
           name: node.name,
@@ -240,8 +242,8 @@ export function describeTree(nodes: SchemaNode[]): {
           label: node.label,
           required: node.required,
           kind: node.kind,
-          role: classifyRole(node.name, path),
-          translatable: node.translatable,
+          role,
+          translatable: node.translatable && role !== 'derived',
         }
         if (blockSlug) descriptor.blockSlug = blockSlug
         leaves.push(descriptor)
@@ -256,18 +258,21 @@ export function describeTree(nodes: SchemaNode[]): {
         continue
       }
 
-      const path = `${prefix}${node.name}[]`
-      containers.push({
-        path,
-        type: node.nodeKind === 'array' ? 'array' : 'blocks',
-        label: node.label,
-        localeScoped: scoped,
-      })
-
+      const before = leaves.length
       if (node.nodeKind === 'array') {
-        visit(node.children, `${path}.`, blockSlug, scoped)
+        visit(node.children, `${prefix}${node.name}[].`, blockSlug, scoped)
       } else {
-        for (const block of node.blocks) visit(block.children, `${path}.`, block.slug, scoped)
+        for (const block of node.blocks) {
+          visit(block.children, `${prefix}${node.name}[${block.slug}].`, block.slug, scoped)
+        }
+      }
+      if (leaves.length > before) {
+        containers.push({
+          path: `${prefix}${node.name}[]`,
+          type: node.nodeKind === 'array' ? 'array' : 'blocks',
+          label: node.label,
+          localeScoped: scoped,
+        })
       }
     }
   }

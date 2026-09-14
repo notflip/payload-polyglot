@@ -1,5 +1,6 @@
 import { cachedContext } from '../context.js'
 import { getByPath, MISSING, setByPath, topLevelField } from '../flatten.js'
+import { isLexical } from '../lexical.js'
 import { evaluate } from '../status.js'
 import type { ApplyRequest, ApplyResponse, LeafKind } from '../types.js'
 import { body, guard, json, type PolyglotOptions } from './http.js'
@@ -38,13 +39,16 @@ async function lockedByOther(req: AnyReq, slug: string, id: unknown): Promise<st
   }
 }
 
-/** The kind of a leaf, looked up by its template path. */
-function kindOf(leaves: { path: string; kind: LeafKind }[], path: string): LeafKind {
-  const template = path.replace(/\[\d+\]/g, '[]')
-  return leaves.find((leaf) => leaf.path === template)?.kind ?? 'text'
-}
-
-function hashOf(kind: LeafKind, value: unknown): string {
+/**
+ * Hash a value the same way the report does.
+ *
+ * The kind is read from the value itself rather than from the manifest: a
+ * lexical document is the only shape that needs the rich text path, and it is
+ * recognisable at runtime. This keeps the hash correct even for a block whose
+ * template path the caller did not resolve.
+ */
+function hashOf(value: unknown): string {
+  const kind: LeafKind = isLexical(value) ? 'richtext' : 'text'
   return evaluate(kind, value, true).hash ?? ''
 }
 
@@ -134,11 +138,11 @@ export const applyHandler =
             .filter((op) => {
               if (!op.expectedHash) return false
               const current = getByPath(doc, op.path)
-              return current === MISSING || hashOf(kindOf(entity.manifest.leaves, op.path), current) !== op.expectedHash
+              return current === MISSING || hashOf(current) !== op.expectedHash
             })
             .map((op) => ({
               path: op.path,
-              serverHash: hashOf(kindOf(entity.manifest.leaves, op.path), getByPath(doc, op.path)),
+              serverHash: hashOf(getByPath(doc, op.path)),
             })),
         })
       }
@@ -198,7 +202,7 @@ export const applyHandler =
         updatedAt: String(updated.updatedAt ?? ''),
         applied: request.ops.map((op) => ({
           path: op.path,
-          newHash: hashOf(kindOf(entity.manifest.leaves, op.path), getByPath(updated, op.path)),
+          newHash: hashOf(getByPath(updated, op.path)),
         })),
       } satisfies ApplyResponse)
     } catch (error) {

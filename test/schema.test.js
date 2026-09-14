@@ -77,10 +77,10 @@ test('finds every localized leaf and skips the rest', () => {
     'path',
     'seo.title',
     'seo.image',
-    'blocks[].title',
-    'blocks[].subtitle',
-    'blocks[].items[].title',
-    'blocks[].items[].content',
+    'blocks[faq].title',
+    'blocks[faq].subtitle',
+    'blocks[faq].items[].title',
+    'blocks[faq].items[].content',
     'highlights[].text',
   ])
 })
@@ -88,17 +88,30 @@ test('finds every localized leaf and skips the rest', () => {
 test('classifies kind, role and translatability', () => {
   const { leaves } = describeTree(tree)
   const by = Object.fromEntries(leaves.map((l) => [l.path, l]))
-  assert.equal(by['blocks[].items[].content'].kind, 'richtext')
-  assert.equal(by['blocks[].items[].content'].blockSlug, 'faq')
+  assert.equal(by['blocks[faq].items[].content'].kind, 'richtext')
+  assert.equal(by['blocks[faq].items[].content'].blockSlug, 'faq')
   assert.equal(by['seo.image'].kind, 'relation')
   assert.equal(by['seo.image'].translatable, false)
   assert.equal(by['seo.title'].role, 'seo')
   assert.equal(by['slug'].role, 'slug')
   // The nested-docs plugin owns `path`. Polyglot reports it but never writes it.
   assert.equal(by['path'].role, 'derived')
+  assert.equal(by['path'].translatable, false)
   assert.equal(by['title'].required, true)
   assert.equal(by['title'].label, 'Titel')
-  assert.equal(by['blocks[].items[].title'].label, 'Vraag')
+  assert.equal(by['blocks[faq].items[].title'].label, 'Vraag')
+})
+
+test('two blocks with the same field name keep separate paths', () => {
+  const { leaves } = describeTree(tree)
+  const templates = leaves.map((l) => l.path)
+  assert.equal(new Set(templates).size, templates.length)
+})
+
+test('a container without a localized leaf is left out', () => {
+  const { containers } = describeTree(tree)
+  // The `media` block holds no localized field, so no container is reported for it.
+  assert.equal(containers.some((c) => c.path.includes('media')), false)
 })
 
 test('marks a localized container as locale scoped', () => {
