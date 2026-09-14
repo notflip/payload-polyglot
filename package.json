@@ -30,7 +30,9 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "prepare": "tsc -p tsconfig.build.json || true",
+    "prepublishOnly": "tsc -p tsconfig.build.json && node --test test/*.test.js"
   },
   "peerDependencies": {
     "payload": ">=3.39.0"
@@ -39,5 +41,18 @@
     "payload": "^3.88.0",
     "typescript": "^5.7.3",
     "@types/node": "^22.10.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "payload",
+    "payloadcms",
+    "localization",
+    "i18n",
+    "translation"
+  ],
+  "engines": {
+    "node": ">=20"
   }
 }
