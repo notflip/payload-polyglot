@@ -157,10 +157,12 @@ export type ReadResponse = {
   updatedAt: string
   status: string | Record<string, string> | null
   sourceLocale: string
-  targetLocale: string
-  /** Full values, keyed by concrete path. Rich text arrives as a lexical tree. */
+  /** The target locales in this answer, in config order. */
+  targetLocales: string[]
+  /** Full values of the source locale, keyed by concrete path. */
   source: Record<string, unknown>
-  target: Record<string, unknown>
+  /** Full values per target locale. Rich text arrives as a lexical tree. */
+  targets: Record<string, Record<string, unknown>>
   units: ReportUnit[]
 }
 

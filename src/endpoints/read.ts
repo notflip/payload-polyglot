@@ -9,10 +9,13 @@ type AnyData = Record<string, any>
 /**
  * `GET /api/polyglot/read`
  *
- * Query: `entity`, `kind`, `id`, `source`, `target`, `state`.
+ * Query: `entity`, `kind`, `id`, `source`, `targets`, `state`.
  *
- * Returns the full values of one document in two locales, for the side by side
- * editor. `fallbackLocale: false` is what keeps an empty target empty.
+ * `targets` is a list separated by commas. Leave it out to get every locale
+ * except the source, so one request fills a whole editor.
+ *
+ * `fallbackLocale: false` is what keeps an empty target empty. Payload ignores
+ * a plain `null` here and keeps falling back to the source.
  */
 export const readHandler =
   (options: PolyglotOptions) =>
@@ -25,16 +28,27 @@ export const readHandler =
     const slug = params.get('entity') ?? ''
     const id = params.get('id') ?? undefined
     const state = (params.get('state') ?? 'published') as DocState
-    const target = params.get('target') ?? ''
 
     const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')
     const entity = context.entities.get(`${kind}:${slug}`)
     if (!entity) {
       return json(404, { ok: false, code: 'not_found', message: `unknown entity ${kind}:${slug}` })
     }
+
     const source = params.get('source') ?? context.defaultLocale
-    if (!context.locales.includes(target)) {
-      return json(400, { ok: false, code: 'validation', message: `unknown locale ${target}` })
+    const asked = (params.get('targets') ?? '')
+      .split(',')
+      .map((code) => code.trim())
+      .filter((code) => code !== '')
+    const targetLocales = (asked.length > 0 ? asked : context.locales).filter(
+      (code) => code !== source && context.locales.includes(code),
+    )
+
+    if (!context.locales.includes(source)) {
+      return json(400, { ok: false, code: 'validation', message: `unknown locale ${source}` })
+    }
+    if (targetLocales.length === 0) {
+      return json(400, { ok: false, code: 'validation', message: 'no target locale to read' })
     }
     if (kind === 'collection' && !id) {
       return json(400, { ok: false, code: 'validation', message: 'id is required' })
@@ -49,19 +63,23 @@ export const readHandler =
       req,
     }
 
-    const load = async (locale: string): Promise<AnyData> =>
+    const load = async (locale: string | 'all'): Promise<AnyData> =>
       kind === 'global'
         ? await req.payload.findGlobal({ slug, locale, ...base })
         : await req.payload.findByID({ collection: slug, id, locale, ...base })
 
     // These reads run one after the other on purpose. Payload writes the active
-    // locale onto the request object, so two reads that share one request race
-    // and both return the locale of whichever call ran last.
+    // locale onto the request object, so reads that share one request race and
+    // all return the locale of whichever call ran last.
     let sourceDoc: AnyData
-    let targetDoc: AnyData
+    const targets: Record<string, Record<string, unknown>> = {}
+    let allDoc: AnyData
     try {
       sourceDoc = await load(source)
-      targetDoc = await load(target)
+      for (const locale of targetLocales) {
+        targets[locale] = collectValues(entity.tree, await load(locale))
+      }
+      allDoc = await load('all')
     } catch (error) {
       return json(404, {
         ok: false,
@@ -70,24 +88,17 @@ export const readHandler =
       })
     }
 
-    // Units come from a single read with every locale, so the statuses of the
-    // two columns are produced by the same rules as the report.
-    const allDoc = (kind === 'global'
-      ? await req.payload.findGlobal({ slug, locale: 'all', ...base })
-      : await req.payload.findByID({ collection: slug, id, locale: 'all', ...base })) as AnyData
-
-    const useAsTitle = entity.manifest.useAsTitle
-    const rawTitle = useAsTitle ? sourceDoc[useAsTitle] : undefined
+    const rawTitle = entity.manifest.useAsTitle ? sourceDoc[entity.manifest.useAsTitle] : undefined
 
     const response: ReadResponse = {
-      id: targetDoc.id ?? id ?? slug,
-      title: typeof rawTitle === 'string' && rawTitle !== '' ? rawTitle : `#${targetDoc.id ?? slug}`,
-      updatedAt: String(targetDoc.updatedAt ?? ''),
+      id: sourceDoc.id ?? id ?? slug,
+      title: typeof rawTitle === 'string' && rawTitle !== '' ? rawTitle : `#${sourceDoc.id ?? slug}`,
+      updatedAt: String(sourceDoc.updatedAt ?? ''),
       status: (allDoc._status ?? null) as ReadResponse['status'],
       sourceLocale: source,
-      targetLocale: target,
+      targetLocales,
       source: collectValues(entity.tree, sourceDoc),
-      target: collectValues(entity.tree, targetDoc),
+      targets,
       units: collectUnits(entity.tree, allDoc, context.locales),
     }
     return json(200, response)
