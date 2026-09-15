@@ -120,6 +120,11 @@ Each rule below prevents real data loss.
 - One transaction. A failure halfway leaves nothing behind.
 - Fields named `path` and `breadcrumbs` are refused. The nested-docs plugin owns
   them.
+- The shape of the value must match the shape of the field. A plain string sent
+  to a rich text field is refused with a `validation` error. Rich text holds a
+  tree of headings, lists, links, uploads and embedded blocks. A string would
+  replace all of it. A rich text value sent to a plain text field is refused for
+  the same reason.
 
 ## Which credential does what
 

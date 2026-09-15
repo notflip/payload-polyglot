@@ -482,7 +482,8 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
 
   parent.children = children
   // Let lexical recompute the direction, so a right-to-left target renders.
-  parent.direction = null
+  // Only when the node carries the key, so nothing new is added to the tree.
+  if ('direction' in parent) parent.direction = null
 }
 
 function findFirstTextNode(node: AnyNode | undefined): AnyNode | undefined {

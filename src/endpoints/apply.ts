@@ -161,11 +161,34 @@ export const applyHandler =
 
       const touched = new Set<string>()
       for (const op of request.ops) {
-        if (getByPath(doc, op.path) === MISSING) {
+        const current = getByPath(doc, op.path)
+        if (current === MISSING) {
           return rollback(404, {
             ok: false,
             code: 'path_not_found',
             message: `${op.path} does not exist in ${slug} for locale ${request.locale}`,
+          })
+        }
+
+        // A rich text field holds a tree of nodes: headings, lists, links,
+        // uploads. Writing a plain string over it would throw all of that
+        // away, so the shape has to match what is already there.
+        const target = entity.manifest.leaves.find(
+          (leaf) => leaf.path === op.path.replace(/\[\d+\]/g, '[]'),
+        )
+        const wantsRichText = target?.kind === 'richtext' || isLexical(current)
+        if (wantsRichText && typeof op.value === 'string') {
+          return rollback(400, {
+            ok: false,
+            code: 'validation',
+            message: `${op.path} is rich text. A plain string would drop its formatting, its links and anything embedded in it.`,
+          })
+        }
+        if (!wantsRichText && op.value !== null && typeof op.value === 'object') {
+          return rollback(400, {
+            ok: false,
+            code: 'validation',
+            message: `${op.path} is plain text, so it cannot take a rich text value.`,
           })
         }
         if (!setByPath(doc, op.path, op.value)) {
