@@ -1,6 +1,6 @@
 {
   "name": "@studiomonty/payload-polyglot",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Exposes the translation state of a Payload project over HTTP, and applies translations with the Local API.",
   "license": "MIT",
   "type": "module",

@@ -152,6 +152,11 @@ Each rule below prevents real data loss.
   `<x k="0"/>`, and the write puts the original node back. A translation that
   drops the mark is refused. This also covers a node type a later version of
   Payload adds.
+- A document that holds unpublished changes is refused. Payload builds an
+  update from the newest version, so writing the published document while a
+  draft waits would carry that draft onto the site: the same thing the Publish
+  button of the admin panel does. A translation never publishes anyone's work.
+  The answer is `409 draft_pending`, and the same rule guards `/refresh`.
 - The shape of the value must match the shape of the field. A plain string sent
   to a rich text field is refused with a `validation` error. Rich text holds a
   tree of headings, lists, links, uploads and embedded blocks. A string would

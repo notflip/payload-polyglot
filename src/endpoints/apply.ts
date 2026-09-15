@@ -125,6 +125,32 @@ export const applyHandler =
         ? await req.payload.findGlobal({ slug, ...read })
         : await req.payload.findByID({ collection: slug, id: request.id, ...read })) as AnyData
 
+      /*
+       * A document with drafts may hold changes that nobody published yet.
+       * Payload builds an update from the newest version, so a write to the
+       * published document would carry those changes into the site: the same
+       * thing the Publish button of the admin panel does. A translation must
+       * never do that on its own.
+       */
+      if (!draft && entity.manifest.drafts) {
+        const latest = (kind === 'global'
+          ? await req.payload.findGlobal({ slug, ...read, draft: true })
+          : await req.payload.findByID({ collection: slug, id: request.id, ...read, draft: true })) as AnyData
+        const status = latest?._status
+        const pending =
+          typeof status === 'string'
+            ? status === 'draft'
+            : Boolean(status && typeof status === 'object' && Object.values(status).includes('draft'))
+        if (pending) {
+          return rollback(409, {
+            ok: false,
+            code: 'draft_pending',
+            message:
+              'This document holds changes that nobody published yet. Publishing or dropping them in Payload frees it, or translate its draft instead.',
+          })
+        }
+      }
+
       const serverUpdatedAt = String(doc.updatedAt ?? '')
       if (
         request.guard?.updatedAt &&

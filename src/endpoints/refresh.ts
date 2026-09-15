@@ -42,9 +42,35 @@ export const refreshHandler =
       return json(400, { ok: false, code: 'validation', message: 'a collection needs an id' })
     }
 
+    const draft = request.state === 'draft'
+
+    /*
+     * The same rule as a write: Payload builds an update from the newest
+     * version, so saving the published document while a draft waits would put
+     * that draft on the site. A refresh must never publish anything.
+     */
+    if (!draft && entity.manifest.drafts) {
+      const read = { depth: 0, draft: true, overrideAccess: false, user: req.user, req }
+      const latest = (kind === 'global'
+        ? await req.payload.findGlobal({ slug, ...read })
+        : await req.payload.findByID({ collection: slug, id: request.id, ...read })) as Record<string, any>
+      const status = latest?._status
+      const pending =
+        typeof status === 'string'
+          ? status === 'draft'
+          : Boolean(status && typeof status === 'object' && Object.values(status).includes('draft'))
+      if (pending) {
+        return json(409, {
+          ok: false,
+          code: 'draft_pending',
+          message: 'This document holds changes that nobody published yet, so it was left alone.',
+        })
+      }
+    }
+
     const write = {
       data: {},
-      draft: request.state === 'draft',
+      draft,
       depth: 0,
       overrideAccess: false,
       user: req.user,

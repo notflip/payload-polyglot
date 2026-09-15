@@ -253,7 +253,7 @@ export type ApplyResponse =
   | { ok: false; code: 'locked'; message: string; lockedBy?: string }
   | {
       ok: false
-      code: 'not_found' | 'forbidden' | 'validation' | 'path_not_found' | 'error'
+      code: 'not_found' | 'forbidden' | 'validation' | 'path_not_found' | 'draft_pending' | 'error'
       message: string
       details?: unknown
     }
