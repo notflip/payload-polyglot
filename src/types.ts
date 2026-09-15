@@ -36,6 +36,8 @@ export type LeafDescriptor = {
   translatable: boolean
   /** Slug of the block this leaf belongs to, when it sits inside a blocks field. */
   blockSlug?: string
+  /** Rich text only: the custom components this editor allows. */
+  components?: ComponentDescriptor[]
 }
 
 export type ContainerDescriptor = {
@@ -112,6 +114,26 @@ export type UnitValue = {
   preview?: string
 }
 
+/** One translatable field inside a custom lexical component. */
+export type ComponentField = {
+  /** Path inside the fields of the component, e.g. `link.label`, `items[].title`. */
+  path: string
+  label: string
+  kind: LeafKind
+}
+
+/**
+ * A custom component of the rich text editor: `inlineButton`, `inlineFaq`.
+ *
+ * Payload holds the definition, so the list of fields is what the project
+ * itself declares. A component a project adds later needs no configuration.
+ */
+export type ComponentDescriptor = {
+  slug: string
+  label: string
+  fields: ComponentField[]
+}
+
 export type ReportUnit = {
   /** Concrete path with real indices, e.g. `blocks[2].items[0].title`. */
   path: string
@@ -121,6 +143,10 @@ export type ReportUnit = {
   role: LeafRole
   label: string
   blockSlug?: string
+  /** Set when this unit sits inside a custom component of a rich text field. */
+  componentSlug?: string
+  /** The rich text field that holds the component, so the hub can group them. */
+  parentPath?: string
   /** What the row this field sits in is called, such as the key of a string. */
   rowTitle?: string
   /**

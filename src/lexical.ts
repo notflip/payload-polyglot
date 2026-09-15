@@ -7,6 +7,9 @@
  * embedded blocks - is structure that a translation must keep.
  */
 
+import { getByPath, MISSING, setByPath } from './path.js'
+import type { ComponentDescriptor } from './types.js'
+
 type AnyNode = Record<string, any>
 
 export type LexicalRoot = { root: AnyNode }
@@ -585,4 +588,148 @@ export function assertRoundTrip(source: unknown, rebuilt: unknown): void {
 /** Deep copy a lexical document. Used to build a target from a source. */
 export function cloneLexical<T>(doc: T): T {
   return structuredClone(doc)
+}
+
+// ---------------------------------------------------------------------------
+// The text inside a custom component
+// ---------------------------------------------------------------------------
+
+/**
+ * One translatable field of one component that stands in a document.
+ *
+ * `inlineFaq` with twelve questions produces twenty-four of these: a title and
+ * an answer for each item. Each one is a string of its own, so the hub shows
+ * it as its own row, next to the text it belongs to.
+ */
+export type ComponentUnit = {
+  /** Address of the component node in the tree, such as `0/2`. */
+  addr: string
+  /** Block slug: `inlineButton`, `inlineFaq`. */
+  slug: string
+  /** Name of the component, for the reader. */
+  label: string
+  /** Concrete field path inside the component, such as `items[1].title`. */
+  field: string
+  /** The same path without indices, matching `ComponentField.path`. */
+  template: string
+  fieldLabel: string
+  kind: 'text' | 'richtext'
+  /** What is appended to the path of the rich text field. */
+  suffix: string
+  value: unknown
+}
+
+/** Both shapes Payload gives a component: in a sentence, and on its own line. */
+const COMPONENT_NODES = new Set(['block', 'inlineBlock'])
+
+/**
+ * Expand a template such as `items[].title` over the data that is there.
+ * Twelve items give twelve paths.
+ */
+function expandTemplate(data: unknown, template: string): string[] {
+  const open = template.indexOf('[]')
+  if (open === -1) return [template]
+
+  const before = template.slice(0, open)
+  const after = template.slice(open + 2)
+  const list = getByPath(data, before)
+  if (!Array.isArray(list)) return []
+
+  const out: string[] = []
+  for (let index = 0; index < list.length; index++) {
+    out.push(...expandTemplate(data, `${before}[${index}]${after}`))
+  }
+  return out
+}
+
+/** Split `content@0/2#items[1].title` into its three parts. */
+export function parseComponentPath(path: string): { field: string; addr: string; inner: string } | undefined {
+  const at = path.indexOf('@')
+  const hash = path.indexOf('#', at)
+  if (at === -1 || hash === -1) return undefined
+  return { field: path.slice(0, at), addr: path.slice(at + 1, hash), inner: path.slice(hash + 1) }
+}
+
+/** Build the path of one component field, relative to the rich text field. */
+export function componentPath(addr: string, inner: string): string {
+  return `@${addr}#${inner}`
+}
+
+/**
+ * Every translatable field of every component in a document.
+ *
+ * The list of fields comes from the Payload config, so a component a project
+ * writes tomorrow is read the same way as one it wrote last year. A field
+ * Payload calls text is text; nothing here guesses.
+ */
+export function componentUnits(doc: unknown, components: ComponentDescriptor[]): ComponentUnit[] {
+  if (!isLexical(doc) || components.length === 0) return []
+  const known = new Map(components.map((component) => [component.slug, component]))
+  const out: ComponentUnit[] = []
+
+  const walk = (node: AnyNode | undefined, addr: string): void => {
+    if (!node || typeof node !== 'object') return
+
+    if (COMPONENT_NODES.has(String(node.type ?? ''))) {
+      const component = known.get(String(node.fields?.blockType ?? ''))
+      if (component) {
+        // Reading order: the first question, then its answer, then the second
+        // question. A list of twelve questions followed by twelve answers
+        // would be unreadable.
+        const here: { sort: number[]; unit: ComponentUnit }[] = []
+        for (const [order, field] of component.fields.entries()) {
+          for (const inner of expandTemplate(node.fields, field.path)) {
+            const value = getByPath(node.fields, inner)
+            if (value === MISSING) continue
+            here.push({
+              sort: [...inner.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1])).concat(order),
+              unit: {
+                addr,
+                slug: component.slug,
+                label: component.label,
+                field: inner,
+                template: field.path,
+                fieldLabel: field.label,
+                kind: field.kind === 'richtext' ? 'richtext' : 'text',
+                suffix: componentPath(addr, inner),
+                value,
+              },
+            })
+          }
+        }
+        here.sort((a, b) => {
+          for (let i = 0; i < Math.max(a.sort.length, b.sort.length); i++) {
+            const difference = (a.sort[i] ?? -1) - (b.sort[i] ?? -1)
+            if (difference !== 0) return difference
+          }
+          return 0
+        })
+        for (const entry of here) out.push(entry.unit)
+      }
+    }
+
+    for (const [index, child] of (node.children ?? []).entries()) walk(child, `${addr}/${index}`)
+  }
+
+  for (const [index, child] of (doc.root.children ?? []).entries()) walk(child, String(index))
+  return out
+}
+
+/** Read one component field out of a document. */
+export function getComponentValue(doc: unknown, addr: string, inner: string): unknown {
+  const node = isLexical(doc) ? getByAddr(doc, addr) : undefined
+  return node ? getByPath(node.fields ?? {}, inner) : MISSING
+}
+
+/**
+ * Write one component field into a document.
+ *
+ * Returns false when the address or the field is not there, so a caller never
+ * writes a value into a tree that has a different shape.
+ */
+export function setComponentValue(doc: unknown, addr: string, inner: string, value: unknown): boolean {
+  const node = isLexical(doc) ? getByAddr(doc, addr) : undefined
+  if (!node || !node.fields) return false
+  if (getByPath(node.fields, inner) === MISSING) return false
+  return setByPath(node.fields, inner, value)
 }

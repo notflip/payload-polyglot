@@ -1,58 +1,12 @@
+import { componentUnits, getComponentValue } from './lexical.js'
+import { getByPath, MISSING, parsePath, setByPath } from './path.js'
 import { evaluate } from './status.js'
 import type { SchemaNode } from './schema.js'
-import type { LeafKind, LeafRole, ReportUnit, UnitValue } from './types.js'
+import type { ComponentDescriptor, LeafKind, LeafRole, ReportUnit, UnitValue } from './types.js'
 
 type AnyData = Record<string, any>
 
-/**
- * Read a value at a concrete path such as `blocks[2].items[0].title`.
- * Returns the marker `MISSING` when any step of the path does not exist, so a
- * caller can tell "absent" apart from "present and null".
- */
-export const MISSING = Symbol('missing')
-
-export function parsePath(path: string): (string | number)[] {
-  const parts: (string | number)[] = []
-  for (const chunk of path.split('.')) {
-    const match = /^([^[\]]+)((?:\[\d+\])*)$/.exec(chunk)
-    if (!match) {
-      parts.push(chunk)
-      continue
-    }
-    parts.push(match[1]!)
-    for (const index of match[2]!.matchAll(/\[(\d+)\]/g)) parts.push(Number(index[1]))
-  }
-  return parts
-}
-
-export function getByPath(data: unknown, path: string): unknown | typeof MISSING {
-  let current: any = data
-  for (const part of parsePath(path)) {
-    if (current === null || current === undefined) return MISSING
-    if (typeof part === 'number') {
-      if (!Array.isArray(current) || part >= current.length) return MISSING
-      current = current[part]
-    } else {
-      if (typeof current !== 'object' || !(part in current)) return MISSING
-      current = current[part]
-    }
-  }
-  return current
-}
-
-export function setByPath(data: AnyData, path: string, value: unknown): boolean {
-  const parts = parsePath(path)
-  let current: any = data
-  for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]!
-    if (current === null || current === undefined) return false
-    current = typeof part === 'number' ? current?.[part] : current?.[part]
-  }
-  const last = parts[parts.length - 1]
-  if (last === undefined || current === null || typeof current !== 'object') return false
-  current[last as any] = value
-  return true
-}
+export { getByPath, MISSING, parsePath, setByPath }
 
 /** The first path segment. `payload.update` receives only these fields. */
 export function topLevelField(path: string): string {
@@ -71,6 +25,8 @@ type Draft = {
   role: LeafRole
   label: string
   blockSlug?: string
+  componentSlug?: string
+  parentPath?: string
   rowTitle?: string
   localeScoped: boolean
   values: Record<string, UnitValue>
@@ -110,7 +66,13 @@ function roleOf(name: string, path: string): LeafRole {
  * instead, and the structure below it can differ per locale. Both shapes are
  * handled here; `localeScoped` marks the second one for the hub.
  */
-export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]): ReportUnit[] {
+export function collectUnits(
+  tree: SchemaNode[],
+  doc: AnyData,
+  locales: string[],
+  sourceLocale?: string,
+): ReportUnit[] {
+  const source = sourceLocale ?? locales[0] ?? ''
   const drafts = new Map<string, Draft>()
 
   const record = (draft: Omit<Draft, 'values'>, locale: string, value: UnitValue): void => {
@@ -155,6 +117,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
         if (localeCtx !== null) {
           // Inside a locale-scoped branch the value is already plain.
           record(draft, localeCtx, evaluate(node.kind, raw, node.name in object))
+          if (node.components) components({ [localeCtx]: raw }, [localeCtx], node.components, draft)
           continue
         }
         // Otherwise Payload returned an object keyed by locale.
@@ -163,6 +126,7 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
           const present = raw !== null && raw !== undefined && locale in byLocale
           record(draft, locale, evaluate(node.kind, present ? byLocale[locale] : null, present))
         }
+        if (node.components) components(byLocale, locales, node.components, draft)
         continue
       }
 
@@ -211,6 +175,39 @@ export function collectUnits(tree: SchemaNode[], doc: AnyData, locales: string[]
         for (const locale of locales) walkList(byLocale[locale], locale)
       } else {
         walkList(value, localeCtx)
+      }
+    }
+  }
+
+  /**
+   * The text that stands inside a custom component of a rich text field.
+   *
+   * The source locale says which components are there and how many rows they
+   * hold. A target locale whose tree has a different shape reports the row as
+   * absent rather than writing into the wrong place.
+   */
+  function components(
+    trees: AnyData,
+    inLocales: string[],
+    descriptors: ComponentDescriptor[],
+    parent: Omit<Draft, 'values'>,
+  ): void {
+    const base = trees[source] ?? trees[inLocales.find((locale) => trees[locale]) ?? '']
+    for (const unit of componentUnits(base, descriptors)) {
+      const draft: Omit<Draft, 'values'> = {
+        path: parent.path + unit.suffix,
+        template: `${parent.template}#${unit.template}`,
+        kind: unit.kind,
+        role: 'content',
+        label: unit.fieldLabel,
+        componentSlug: unit.slug,
+        parentPath: parent.path,
+        rowTitle: unit.label,
+        localeScoped: parent.localeScoped,
+      }
+      for (const locale of inLocales) {
+        const value = getComponentValue(trees[locale], unit.addr, unit.field)
+        record(draft, locale, evaluate(unit.kind, value === MISSING ? null : value, value !== MISSING))
       }
     }
   }

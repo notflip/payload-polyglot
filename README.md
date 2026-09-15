@@ -120,6 +120,11 @@ Each rule below prevents real data loss.
 - One transaction. A failure halfway leaves nothing behind.
 - Fields named `path` and `breadcrumbs` are refused. The nested-docs plugin owns
   them.
+- The text inside a custom component is translated as well. Payload holds the
+  definition of every component, so the fields it calls text are the fields
+  Polyglot offers, whatever the project names them. An `inlineFaq` with twelve
+  questions gives twenty-four strings, each one its own row under the text that
+  holds it. The path says where it stands: `content@1#items[3].title`.
 - A custom lexical component keeps its place. A project can add its own
   nodes to the editor: `inlineButton`, `inlineFaq`, `inlineImage`. Such a node
   holds no text, so the reader used to walk past it and the write-back rebuilt

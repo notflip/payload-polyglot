@@ -1,4 +1,5 @@
 import type {
+  ComponentDescriptor,
   ContainerDescriptor,
   EntityKind,
   EntityManifest,
@@ -29,6 +30,8 @@ export type LeafNode = {
   translatable: boolean
   /** The field itself carries `localized: true`. */
   localized: boolean
+  /** Rich text only: what the editor allows to be embedded in the text. */
+  components?: ComponentDescriptor[]
 }
 
 /** A group, a named tab, or a transparent wrapper (row, collapsible, unnamed tab). */
@@ -78,6 +81,42 @@ export type BlocksNode = {
   label: string
   localeBoundary: boolean
   blocks: { slug: string; label: string; children: SchemaNode[] }[]
+}
+
+/**
+ * What a rich text editor allows to be embedded in the text.
+ *
+ * A project adds its own components to the editor: `inlineButton`, `inlineFaq`,
+ * `inlineImage`. Payload sanitizes each one into a normal block, so its fields
+ * are read with the same walker as every other field. Whatever the project
+ * declares as text is therefore translatable, with no configuration here and
+ * no list of known component names.
+ *
+ * The lexical adapter keeps them under the `blocks` feature. `blocks` holds
+ * the block-level ones and `inlineBlocks` the ones that sit inside a sentence.
+ */
+function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
+  const feature = field.editor?.editorConfig?.resolvedFeatureMap?.get?.('blocks')
+  const props = feature?.sanitizedServerFeatureProps ?? feature?.sanitizedClientFeatureProps ?? {}
+  const defs = [...(props.blocks ?? []), ...(props.inlineBlocks ?? [])] as AnyField[]
+
+  const out: ComponentDescriptor[] = []
+  for (const block of defs) {
+    if (!block || typeof block !== 'object') continue
+    // Everything inside a lexical tree belongs to the locale of that tree, so
+    // the walk starts as localized.
+    const { leaves } = describeTree(walkFields(block.fields, lang, true))
+    const fields = leaves
+      .filter((leaf) => leaf.translatable)
+      .map((leaf) => ({ path: leaf.path, label: leaf.label, kind: leaf.kind }))
+    if (fields.length === 0) continue
+    out.push({
+      slug: String(block.slug),
+      label: readLabel(block.labels?.singular ?? block.label, String(block.slug), lang),
+      fields,
+    })
+  }
+  return out
 }
 
 const TRANSLATABLE_TYPES = new Set(['text', 'textarea', 'richText'])
@@ -223,8 +262,10 @@ export function walkFields(
     }
 
     const { kind, translatable } = classifyLeaf(field)
+    const components = type === 'richText' ? readComponents(field, lang) : []
     nodes.push({
       nodeKind: 'leaf',
+      ...(components.length > 0 ? { components } : {}),
       name,
       type,
       label: readLabel(field.label, name, lang),
@@ -272,6 +313,7 @@ export function describeTree(nodes: SchemaNode[]): {
           translatable: node.translatable && role !== 'derived',
         }
         if (blockSlug) descriptor.blockSlug = blockSlug
+        if (node.components) descriptor.components = node.components
         leaves.push(descriptor)
         continue
       }

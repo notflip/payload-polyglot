@@ -117,6 +117,6 @@ function buildDoc(
     title: titleOf(doc, entity.manifest.useAsTitle, defaultLocale),
     updatedAt: String(doc.updatedAt ?? ''),
     status: (doc._status ?? null) as ReportDoc['status'],
-    units: collectUnits(entity.tree, doc, locales),
+    units: collectUnits(entity.tree, doc, locales, defaultLocale),
   }
 }
