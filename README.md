@@ -120,6 +120,13 @@ Each rule below prevents real data loss.
 - One transaction. A failure halfway leaves nothing behind.
 - Fields named `path` and `breadcrumbs` are refused. The nested-docs plugin owns
   them.
+- A custom lexical component keeps its place. A project can add its own
+  nodes to the editor: `inlineButton`, `inlineFaq`, `inlineImage`. Such a node
+  holds no text, so the reader used to walk past it and the write-back rebuilt
+  the sentence without it. The node is now one mark in the translation,
+  `<x k="0"/>`, and the write puts the original node back. A translation that
+  drops the mark is refused. This also covers a node type a later version of
+  Payload adds.
 - The shape of the value must match the shape of the field. A plain string sent
   to a rich text field is refused with a `validation` error. Rich text holds a
   tree of headings, lists, links, uploads and embedded blocks. A string would

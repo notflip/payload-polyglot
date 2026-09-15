@@ -56,13 +56,27 @@ export type TextSegment = {
   linkIndex?: number
   /**
    * Index of an inline node that holds no text but must keep its place, such
-   * as a line break. Such a segment carries no text of its own.
+   * as a line break or a custom inline block. Such a segment carries no text
+   * of its own.
    */
   atomicIndex?: number
+  /** What that node is, for the reader: `linebreak`, `inlineButton`, `inlineFaq`. */
+  atomicLabel?: string
 }
 
 /** Inline nodes that carry no text but do change the layout. */
 const ATOMIC_NODES = new Set(['linebreak', 'tab'])
+
+/**
+ * What an inline object is called, for the reader.
+ *
+ * A custom lexical component is a block, so its name is its block type:
+ * `inlineButton`, `inlineFaq`. Everything else is named by its node type.
+ */
+function labelOfObject(node: AnyNode): string {
+  const block = node.fields?.blockType
+  return typeof block === 'string' && block !== '' ? block : String(node.type ?? 'object')
+}
 
 /**
  * Collect every text segment of a lexical document, in reading order.
@@ -93,7 +107,7 @@ export function extractSegments(doc: unknown): TextSegment[] {
     if (ATOMIC_NODES.has(type)) {
       const seen = atomicCounters.get(unit) ?? 0
       atomicCounters.set(unit, seen + 1)
-      out.push({ addr, unit, text: '', format: 0, atomicIndex: seen })
+      out.push({ addr, unit, text: '', format: 0, atomicIndex: seen, atomicLabel: type })
       return
     }
 
@@ -113,6 +127,18 @@ export function extractSegments(doc: unknown): TextSegment[] {
           walk((value as LexicalRoot).root, `${addr}/fields.${key}`, `${addr}/fields.${key}`)
         }
       }
+      return
+    }
+
+    // Anything else inside a unit that holds neither text nor children is an
+    // inline object: a custom lexical component such as `inlineButton`, or a
+    // node type this version does not know. It carries no text, but it holds a
+    // place in the sentence, so it becomes a mark the translation must keep.
+    // Without this the write-back would rebuild the sentence without it.
+    if (addr !== unit && (node.children ?? []).length === 0) {
+      const seen = atomicCounters.get(unit) ?? 0
+      atomicCounters.set(unit, seen + 1)
+      out.push({ addr, unit, text: '', format: 0, atomicIndex: seen, atomicLabel: labelOfObject(node) })
       return
     }
 
@@ -172,6 +198,8 @@ export type TranslationUnit = {
   segments: TextSegment[]
   /** What each `<a k="N">` of this unit points at, so a reader can see it. */
   links: UnitLink[]
+  /** What each `<x k="N"/>` of this unit is: a line break, or a component. */
+  objects: { index: number; label: string }[]
 }
 
 /**
@@ -195,6 +223,9 @@ export function toUnits(doc: unknown): TranslationUnit[] {
     tagged: renderTagged(list),
     segments: list,
     links: describeLinks(doc, unit),
+    objects: list
+      .filter((segment) => segment.atomicIndex !== undefined)
+      .map((segment) => ({ index: segment.atomicIndex!, label: segment.atomicLabel ?? 'object' })),
   }))
 }
 
@@ -420,7 +451,7 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
   const sourceAtomics = new Set(source.filter((s) => s.atomicIndex !== undefined).map((s) => s.atomicIndex))
   const runAtomics = new Set(runs.filter((r) => r.atomicIndex !== undefined).map((r) => r.atomicIndex))
   if (sourceAtomics.size !== runAtomics.size || [...runAtomics].some((k) => !sourceAtomics.has(k))) {
-    throw new TagMismatchError(`unit ${unit}: line breaks do not match the source`)
+    throw new TagMismatchError(`unit ${unit}: the line breaks or components do not match the source`)
   }
 
   // Keep the original link and line break nodes, so their fields and their
@@ -429,7 +460,7 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
   const atomicNodes = new Map<number, AnyNode>()
   let linkSeen = 0
   let atomicSeen = 0
-  const collect = (node: AnyNode | undefined) => {
+  const collect = (node: AnyNode | undefined, top: boolean) => {
     if (!node || typeof node !== 'object') return
     const type = String(node.type ?? '')
     if (ATOMIC_NODES.has(type)) {
@@ -440,9 +471,14 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
       linkNodes.set(linkSeen++, node)
       return
     }
-    for (const child of node.children ?? []) collect(child)
+    // The same rule as the reader: an inline object is kept whole.
+    if (!top && type !== 'text' && (node.children ?? []).length === 0) {
+      atomicNodes.set(atomicSeen++, node)
+      return
+    }
+    for (const child of node.children ?? []) collect(child, false)
   }
-  collect(parent)
+  collect(parent, true)
 
   // A donor text node, so style, mode, detail and version survive.
   const donor = findFirstTextNode(parent) ?? { type: 'text', style: '', mode: 'normal', detail: 0, version: 1 }
@@ -542,7 +578,7 @@ export function assertRoundTrip(source: unknown, rebuilt: unknown): void {
       ].sort()
     const a = marks(unit.segments).join(',')
     const b = marks(other.segments).join(',')
-    if (a !== b) throw new TagMismatchError(`unit ${unit.unit}: link or line break set changed`)
+    if (a !== b) throw new TagMismatchError(`unit ${unit.unit}: a link, a line break or a component was lost`)
   }
 }
 

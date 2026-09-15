@@ -82,3 +82,45 @@ test('a rich text value is recognised, so a plain string can be refused', () => 
   assert.equal(isLexical('Titel'), false)
   assert.equal(isLexical(null), false)
 })
+
+/**
+ * A custom lexical component: `inlineButton`, `inlineFaq`, or anything a
+ * project adds later. It holds no text of its own, so a translation must
+ * carry it as one mark and put it back untouched.
+ */
+const withComponent = {
+  root: { type: 'root', version: 1, direction: null, format: '', indent: 0, children: [
+    { type: 'paragraph', version: 1, direction: null, format: '', indent: 0, children: [
+      { type: 'text', text: 'Lees meer over ', format: 0, style: '', mode: 'normal', detail: 0, version: 1 },
+      { type: 'inlineBlock', version: 1, fields: { id: 'ib1', blockType: 'inlineButton', variant: 'default',
+        link: { type: 'reference', newTab: false, reference: { relationTo: 'pages', value: 12 }, label: 'onze aanpak' } } },
+      { type: 'text', text: ' en bel ons.', format: 0, style: '', mode: 'normal', detail: 0, version: 1 },
+    ] },
+  ] },
+}
+
+test('a custom inline component survives a translation whole', () => {
+  const units = toUnits(withComponent)
+  assert.equal(units[0].tagged, 'Lees meer over <x k="0"/> en bel ons.')
+  assert.deepEqual(units[0].objects, [{ index: 0, label: 'inlineButton' }])
+
+  const after = cloneLexical(withComponent)
+  applyUnit(after, units[0].unit, 'Call us and read <x k="0"/> first.', units[0].segments)
+  assertRoundTrip(withComponent, after)
+
+  const children = after.root.children[0].children
+  assert.deepEqual(children.map((node) => node.type), ['text', 'inlineBlock', 'text'])
+  assert.deepEqual(children[1], withComponent.root.children[0].children[1], 'the component changed')
+  assert.equal(children[0].text, 'Call us and read ')
+  assert.equal(children[2].text, ' first.')
+})
+
+test('a translation that drops the component is refused', () => {
+  const units = toUnits(withComponent)
+  const after = cloneLexical(withComponent)
+  assert.throws(
+    () => applyUnit(after, units[0].unit, 'Call us and read our approach first.', units[0].segments),
+    /components do not match/,
+  )
+  assert.deepEqual(after, withComponent, 'the document changed after a refused write')
+})
