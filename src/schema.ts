@@ -94,6 +94,12 @@ export type BlocksNode = {
  *
  * The lexical adapter keeps them under the `blocks` feature. `blocks` holds
  * the block-level ones and `inlineBlocks` the ones that sit inside a sentence.
+ *
+ * Which fields are offered follows the project. A component whose fields carry
+ * `localized: true` gives exactly those: the developer has already said which
+ * words belong to a language and which are settings. An address and an anchor
+ * are text as well, and a translator must not be asked to change them. When a
+ * component marks nothing, every text field of it is offered.
  */
 function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
   const feature = field.editor?.editorConfig?.resolvedFeatureMap?.get?.('blocks')
@@ -103,10 +109,11 @@ function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
   const out: ComponentDescriptor[] = []
   for (const block of defs) {
     if (!block || typeof block !== 'object') continue
+    const marked = describeTree(walkFields(block.fields, lang, false)).leaves
     // Everything inside a lexical tree belongs to the locale of that tree, so
-    // the walk starts as localized.
-    const { leaves } = describeTree(walkFields(block.fields, lang, true))
-    const fields = leaves
+    // the second walk treats every field as localized.
+    const all = describeTree(walkFields(block.fields, lang, true)).leaves
+    const fields = (marked.length > 0 ? marked : all)
       .filter((leaf) => leaf.translatable)
       .map((leaf) => ({ path: leaf.path, label: leaf.label, kind: leaf.kind }))
     if (fields.length === 0) continue
