@@ -215,7 +215,32 @@ export type ApplyRequest = {
   ops: ApplyOp[]
   guard: { updatedAt: string }
   publish?: 'none' | 'locale' | 'all'
+  /**
+   * Whether the project should drop its caches after this write.
+   *
+   * A translation run writes one language after another. Every write would
+   * otherwise throw away the pages of the site, and the first visitor after
+   * each one waits for a rebuild. The caller sends `false` for every write but
+   * the last of a document, so the site is rebuilt one time.
+   *
+   * The project decides what this means: the plugin only sets
+   * `context.disableRevalidate`, which is the flag the Payload website
+   * template and the Studio Monty kit already read in their hooks. A project
+   * that does not read it keeps its own behaviour.
+   *
+   * Defaults to `true`, so a caller that says nothing loses no freshness.
+   */
+  revalidate?: boolean
 }
+
+/** Ask the project to drop the caches of one document, once. */
+export type RefreshRequest = {
+  entity: { kind: EntityKind; slug: string }
+  id?: string | number
+  state: DocState
+}
+
+export type RefreshResponse = { ok: true; updatedAt: string } | { ok: false; code: string; message: string }
 
 export type ApplyResponse =
   | { ok: true; docId: string | number; updatedAt: string; applied: { path: string; newHash: string }[] }

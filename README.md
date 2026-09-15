@@ -85,6 +85,26 @@ Query: `entity`, `kind`, `id`, `source`, `target`, `state`.
 
 The full values of one document in two locales, for the side by side editor.
 
+### `POST /refresh`
+
+```ts
+{ entity: { kind, slug }, id?, state } -> { ok: true, updatedAt }
+```
+
+Saves the document again with nothing in it, so the hooks of the project run
+and drop what they drop. Nothing in the document changes.
+
+This exists because of `revalidate` on `/apply`. A translation run writes one
+language after another, and every one of those writes would otherwise throw
+away the pages of the site: the first visitor after each write waits for a
+rebuild. The hub therefore sends `revalidate: false` on every write and calls
+this once, after the last language of a document.
+
+The plugin sets `context.disableRevalidate`, which is the flag the Payload
+website template and the Studio Monty kit already read at the top of every
+revalidation hook. A project that does not read it keeps its own behaviour: it
+rebuilds per write, as before, and this call costs it one more save of nothing.
+
 ### `POST /apply`
 
 ```jsonc

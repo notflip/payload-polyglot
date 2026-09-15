@@ -209,7 +209,7 @@ export const applyHandler =
         depth: 0,
         overrideAccess: false,
         user: req.user,
-        context: { polyglot: true },
+        context: { polyglot: true, disableRevalidate: request.revalidate === false },
         req: scoped,
         ...(request.publish === 'all' ? { publishAllLocales: true } : {}),
       }
