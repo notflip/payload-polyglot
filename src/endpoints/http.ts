@@ -25,6 +25,21 @@ export type PolyglotOptions = {
   disabled?: boolean
 }
 
+/**
+ * The id of a document, in the shape the project keeps it.
+ *
+ * An id travels through a URL and through the hub database as text, while
+ * Postgres gives a collection whole numbers. Payload reads a document with
+ * either, but it compares a relationship with what the database holds, so a
+ * text id makes a relationship of that document look wrong and the write is
+ * refused over a field nobody touched. A number that arrives as text is
+ * therefore read as a number again.
+ */
+export function documentId(value: string | number | undefined): string | number | undefined {
+  if (typeof value !== 'string') return value
+  return /^\d+$/.test(value) ? Number(value) : value
+}
+
 export function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,

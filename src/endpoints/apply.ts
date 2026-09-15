@@ -3,7 +3,7 @@ import { getByPath, MISSING, setByPath, topLevelField } from '../flatten.js'
 import { isLexical } from '../lexical.js'
 import { evaluate } from '../status.js'
 import type { ApplyRequest, ApplyResponse, LeafKind } from '../types.js'
-import { body, guard, json, type PolyglotOptions } from './http.js'
+import { body, documentId, guard, json, type PolyglotOptions } from './http.js'
 
 type AnyReq = Record<string, any>
 type AnyData = Record<string, any>
@@ -123,7 +123,7 @@ export const applyHandler =
       }
       const doc = (kind === 'global'
         ? await req.payload.findGlobal({ slug, ...read })
-        : await req.payload.findByID({ collection: slug, id: request.id, ...read })) as AnyData
+        : await req.payload.findByID({ collection: slug, id: documentId(request.id), ...read })) as AnyData
 
       /*
        * A document with drafts may hold changes that nobody published yet.
@@ -135,7 +135,7 @@ export const applyHandler =
       if (!draft && entity.manifest.drafts) {
         const latest = (kind === 'global'
           ? await req.payload.findGlobal({ slug, ...read, draft: true })
-          : await req.payload.findByID({ collection: slug, id: request.id, ...read, draft: true })) as AnyData
+          : await req.payload.findByID({ collection: slug, id: documentId(request.id), ...read, draft: true })) as AnyData
         const status = latest?._status
         const pending =
           typeof status === 'string'
@@ -174,7 +174,7 @@ export const applyHandler =
       }
 
       if (kind === 'collection') {
-        const owner = await lockedByOther(scoped, slug, request.id)
+        const owner = await lockedByOther(scoped, slug, documentId(request.id))
         if (owner) {
           return rollback(423, {
             ok: false,
@@ -241,7 +241,7 @@ export const applyHandler =
       }
       const updated = (kind === 'global'
         ? await req.payload.updateGlobal({ slug, ...write })
-        : await req.payload.update({ collection: slug, id: request.id, ...write })) as AnyData
+        : await req.payload.update({ collection: slug, id: documentId(request.id), ...write })) as AnyData
 
       if (transaction) await req.payload.db.commitTransaction(transaction)
 

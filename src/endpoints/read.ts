@@ -1,7 +1,7 @@
 import { cachedContext } from '../context.js'
 import { collectUnits, collectValues } from '../flatten.js'
 import type { DocState, EntityKind, ReadResponse } from '../types.js'
-import { guard, json, query, type PolyglotOptions } from './http.js'
+import { documentId, guard, json, query, type PolyglotOptions } from './http.js'
 
 type AnyReq = Record<string, any>
 type AnyData = Record<string, any>
@@ -26,7 +26,7 @@ export const readHandler =
     const params = query(req)
     const kind = (params.get('kind') ?? 'collection') as EntityKind
     const slug = params.get('entity') ?? ''
-    const id = params.get('id') ?? undefined
+    const id = documentId(params.get('id') ?? undefined)
     const state = (params.get('state') ?? 'published') as DocState
 
     const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')

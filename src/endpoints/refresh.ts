@@ -1,6 +1,6 @@
 import { cachedContext } from '../context.js'
 import type { EntityKind, RefreshRequest } from '../types.js'
-import { guard, json, type PolyglotOptions } from './http.js'
+import { documentId, guard, json, type PolyglotOptions } from './http.js'
 
 type AnyReq = Record<string, any>
 
@@ -53,7 +53,7 @@ export const refreshHandler =
       const read = { depth: 0, draft: true, overrideAccess: false, user: req.user, req }
       const latest = (kind === 'global'
         ? await req.payload.findGlobal({ slug, ...read })
-        : await req.payload.findByID({ collection: slug, id: request.id, ...read })) as Record<string, any>
+        : await req.payload.findByID({ collection: slug, id: documentId(request.id), ...read })) as Record<string, any>
       const status = latest?._status
       const pending =
         typeof status === 'string'
@@ -81,7 +81,7 @@ export const refreshHandler =
     try {
       const updated = (kind === 'global'
         ? await req.payload.updateGlobal({ slug, ...write })
-        : await req.payload.update({ collection: slug, id: request.id, ...write })) as Record<string, any>
+        : await req.payload.update({ collection: slug, id: documentId(request.id), ...write })) as Record<string, any>
       return json(200, { ok: true, updatedAt: String(updated.updatedAt ?? '') })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'the project refused the refresh'
