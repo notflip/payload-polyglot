@@ -1,13 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describeTree, hasLocalizedLeaf, readLabel, resolveStatusScope, walkFields } from './schema.js'
 import type { EntitySchema, SchemaNode } from './schema.js'
 import type { EntityManifest, LocaleDescriptor, Manifest } from './types.js'
 
 type AnyPayload = Record<string, any>
 
-export const POLYGLOT_VERSION = '0.6.0'
+/** Read from the package itself, so the number can never drift from the code. */
+export const POLYGLOT_VERSION: string = (() => {
+  try {
+    const here = fileURLToPath(new URL('../package.json', import.meta.url))
+    return (JSON.parse(readFileSync(here, 'utf8')) as { version?: string }).version ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+})()
 
 /**
  * The version of the Payload package this project runs.
