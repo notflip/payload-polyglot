@@ -233,3 +233,21 @@ test('each of those fields can be written back on its own', () => {
   assert.equal(fields.items[1].id, 'b', 'the row id changed, which would orphan the other languages')
   assert.deepEqual(doc.root.children[0].fields.items[1].question, 'Vraag 2', 'the source changed')
 })
+
+test('the manifest name of a path comes from the document, not from the shape of the path', async () => {
+  const { templateOf } = await import('../dist/flatten.js')
+  const document = {
+    fields: [
+      { blockType: 'text', label: 'Volledige naam' },
+      { blockType: 'checkbox', label: { root: { type: 'root', children: [] } } },
+    ],
+    items: [{ title: 'Een' }, { title: 'Twee' }],
+    seo: { title: 'Titel' },
+  }
+
+  // A blocks field carries the kind of block; an array does not.
+  assert.equal(templateOf(document, 'fields[0].label'), 'fields[text].label')
+  assert.equal(templateOf(document, 'fields[1].label'), 'fields[checkbox].label')
+  assert.equal(templateOf(document, 'items[1].title'), 'items[].title')
+  assert.equal(templateOf(document, 'seo.title'), 'seo.title')
+})

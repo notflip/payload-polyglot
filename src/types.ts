@@ -255,5 +255,7 @@ export type ApplyResponse =
       ok: false
       code: 'not_found' | 'forbidden' | 'validation' | 'path_not_found' | 'draft_pending' | 'error'
       message: string
+      /** The fields this refusal is about, so a screen can mark them. */
+      paths?: string[]
       details?: unknown
     }

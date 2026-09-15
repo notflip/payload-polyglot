@@ -8,6 +8,31 @@ type AnyData = Record<string, any>
 
 export { getByPath, MISSING, parsePath, setByPath }
 
+/**
+ * The manifest name of a concrete path.
+ *
+ * `fields[5].label` is `fields[checkbox].label` when the sixth block is a
+ * checkbox, and `items[2].title` is `items[].title`. The document itself says
+ * which of the two it is, because only the data knows what kind of block sits
+ * at an index.
+ */
+export function templateOf(data: unknown, path: string): string {
+  let current: any = data
+  let out = ''
+  for (const part of parsePath(path)) {
+    if (typeof part === 'number') {
+      const item = Array.isArray(current) ? current[part] : undefined
+      const slug = item && typeof item === 'object' ? (item as AnyData).blockType : undefined
+      out += `[${typeof slug === 'string' ? slug : ''}]`
+      current = item
+    } else {
+      out += out === '' ? part : `.${part}`
+      current = current === null || current === undefined ? undefined : (current as AnyData)[part]
+    }
+  }
+  return out
+}
+
 /** The first path segment. `payload.update` receives only these fields. */
 export function topLevelField(path: string): string {
   const first = parsePath(path)[0]

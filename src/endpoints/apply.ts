@@ -1,5 +1,5 @@
 import { cachedContext } from '../context.js'
-import { getByPath, MISSING, setByPath, topLevelField } from '../flatten.js'
+import { getByPath, MISSING, setByPath, templateOf, topLevelField } from '../flatten.js'
 import { isLexical } from '../lexical.js'
 import { evaluate } from '../status.js'
 import type { ApplyRequest, ApplyResponse, LeafKind } from '../types.js'
@@ -199,15 +199,15 @@ export const applyHandler =
         // A rich text field holds a tree of nodes: headings, lists, links,
         // uploads. Writing a plain string over it would throw all of that
         // away, so the shape has to match what is already there.
-        const target = entity.manifest.leaves.find(
-          (leaf) => leaf.path === op.path.replace(/\[\d+\]/g, '[]'),
-        )
+        const template = templateOf(doc, op.path)
+        const target = entity.manifest.leaves.find((leaf) => leaf.path === template)
         const wantsRichText = target?.kind === 'richtext' || isLexical(current)
         if (wantsRichText && typeof op.value === 'string') {
           return rollback(400, {
             ok: false,
             code: 'validation',
             message: `${op.path} is rich text. A plain string would drop its formatting, its links and anything embedded in it.`,
+            paths: [op.path],
           })
         }
         if (!wantsRichText && op.value !== null && typeof op.value === 'object') {
@@ -215,6 +215,7 @@ export const applyHandler =
             ok: false,
             code: 'validation',
             message: `${op.path} is plain text, so it cannot take a rich text value.`,
+            paths: [op.path],
           })
         }
         if (!setByPath(doc, op.path, op.value)) {
