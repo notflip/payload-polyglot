@@ -623,21 +623,26 @@ export type ComponentUnit = {
 const COMPONENT_NODES = new Set(['block', 'inlineBlock'])
 
 /**
- * Expand a template such as `items[].title` over the data that is there.
- * Twelve items give twelve paths.
+ * Expand a template over the data that is there.
+ *
+ * `items[].title` with twelve items gives twelve paths. `sections[faq].title`
+ * gives one path per row of that block type, and passes over the rows of
+ * another type, so two blocks that both have a `title` never mix.
  */
-function expandTemplate(data: unknown, template: string): string[] {
-  const open = template.indexOf('[]')
-  if (open === -1) return [template]
+function expandTemplate(data: unknown, template: string, resolved = ''): string[] {
+  const match = /^([^[]*)\[([^\]]*)\](.*)$/.exec(template)
+  if (!match) return [resolved + template]
 
-  const before = template.slice(0, open)
-  const after = template.slice(open + 2)
-  const list = getByPath(data, before)
+  const listPath = resolved + match[1]!
+  const list = getByPath(data, listPath)
   if (!Array.isArray(list)) return []
 
   const out: string[] = []
-  for (let index = 0; index < list.length; index++) {
-    out.push(...expandTemplate(data, `${before}[${index}]${after}`))
+  for (const [index, item] of list.entries()) {
+    // A blocks field names the type between the brackets. Two blocks that both
+    // have a `title` must not read each other's rows.
+    if (match[2] !== '' && String((item as AnyNode)?.blockType ?? '') !== match[2]) continue
+    out.push(...expandTemplate(data, match[3]!, `${listPath}[${index}]`))
   }
   return out
 }
@@ -673,16 +678,26 @@ export function componentUnits(doc: unknown, components: ComponentDescriptor[]):
     if (COMPONENT_NODES.has(String(node.type ?? ''))) {
       const component = known.get(String(node.fields?.blockType ?? ''))
       if (component) {
-        // Reading order: the first question, then its answer, then the second
-        // question. A list of twelve questions followed by twelve answers
+        // Reading order: the order of the fields in the block, with a loop
+        // opened where it stands. The first question, then its answer, then
+        // the second question. Twelve questions followed by twelve answers
         // would be unreadable.
+        const listOf = (template: string) => /^([^[]*\[)[^\]]*(\])/.exec(template)
+        const firstOfList = new Map<string, number>()
+        for (const [order, field] of component.fields.entries()) {
+          const list = listOf(field.path)
+          if (list && !firstOfList.has(list[1]! + list[2]!)) firstOfList.set(list[1]! + list[2]!, order)
+        }
+
         const here: { sort: number[]; unit: ComponentUnit }[] = []
         for (const [order, field] of component.fields.entries()) {
+          const list = listOf(field.path)
+          const head = list ? firstOfList.get(list[1]! + list[2]!)! : order
           for (const inner of expandTemplate(node.fields, field.path)) {
             const value = getByPath(node.fields, inner)
             if (value === MISSING) continue
             here.push({
-              sort: [...inner.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1])).concat(order),
+              sort: [head, ...[...inner.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1])), order],
               unit: {
                 addr,
                 slug: component.slug,

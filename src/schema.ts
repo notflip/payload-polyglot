@@ -137,21 +137,33 @@ function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
 
   const out: ComponentDescriptor[] = []
   for (const block of defs) {
-    if (!block || typeof block !== 'object') continue
-    // Everything inside a lexical tree belongs to the locale of that tree, so
-    // the walk treats every field as localized.
-    const { leaves } = describeTree(walkFields(block.fields, lang, true))
-    const fields = leaves
-      .filter((leaf) => leaf.translatable && !NOT_WORDS.has(leaf.name))
-      .map((leaf) => ({ path: leaf.path, label: leaf.label, kind: leaf.kind }))
-    if (fields.length === 0) continue
-    out.push({
-      slug: String(block.slug),
-      label: readLabel(block.labels?.singular ?? block.label, String(block.slug), lang),
-      fields,
-    })
+    const described = describeComponent(block, lang)
+    if (described) out.push(described)
   }
   return out
+}
+
+/**
+ * The translatable fields of one component, in the order they are edited.
+ *
+ * The same walker reads this as reads a collection, so a group, an array, a
+ * tab, a row and a nested blocks field inside a component are all followed.
+ * Returns nothing when the component holds no words at all.
+ */
+export function describeComponent(block: AnyField, lang = 'nl'): ComponentDescriptor | undefined {
+  if (!block || typeof block !== 'object') return undefined
+  // Everything inside a lexical tree belongs to the locale of that tree, so
+  // the walk treats every field as localized.
+  const { leaves } = describeTree(walkFields(block.fields, lang, true))
+  const fields = leaves
+    .filter((leaf) => leaf.translatable && !NOT_WORDS.has(leaf.name))
+    .map((leaf) => ({ path: leaf.path, label: leaf.label, kind: leaf.kind }))
+  if (fields.length === 0) return undefined
+  return {
+    slug: String(block.slug),
+    label: readLabel(block.labels?.singular ?? block.label, String(block.slug), lang),
+    fields,
+  }
 }
 
 const TRANSLATABLE_TYPES = new Set(['text', 'textarea', 'richText'])
