@@ -95,11 +95,40 @@ export type BlocksNode = {
  * The lexical adapter keeps them under the `blocks` feature. `blocks` holds
  * the block-level ones and `inlineBlocks` the ones that sit inside a sentence.
  *
- * Which fields are offered follows the project. A component whose fields carry
- * `localized: true` gives exactly those: the developer has already said which
- * words belong to a language and which are settings. An address and an anchor
- * are text as well, and a translator must not be asked to change them. When a
- * component marks nothing, every text field of it is offered.
+ * Payload calls an address, an anchor and a caption all three `text`, and it
+ * drops `localized` from the fields inside a block, so the config cannot say
+ * which of them holds words. The names below are the ones that never do. A
+ * field this list does not name is offered for translation, so a component a
+ * project writes tomorrow is covered without a change here.
+ */
+const NOT_WORDS = new Set([
+  'url',
+  'href',
+  'src',
+  'link',
+  'anchor',
+  'hash',
+  'slug',
+  'key',
+  'icon',
+  'target',
+  'rel',
+  'class',
+  'className',
+  'style',
+  'color',
+  'colour',
+  'size',
+  'width',
+  'height',
+  'align',
+  'variant',
+  'theme',
+  'blockName',
+])
+
+/**
+ * Read the components of one rich text editor out of the Payload config.
  */
 function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
   const feature = field.editor?.editorConfig?.resolvedFeatureMap?.get?.('blocks')
@@ -109,12 +138,11 @@ function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
   const out: ComponentDescriptor[] = []
   for (const block of defs) {
     if (!block || typeof block !== 'object') continue
-    const marked = describeTree(walkFields(block.fields, lang, false)).leaves
     // Everything inside a lexical tree belongs to the locale of that tree, so
-    // the second walk treats every field as localized.
-    const all = describeTree(walkFields(block.fields, lang, true)).leaves
-    const fields = (marked.length > 0 ? marked : all)
-      .filter((leaf) => leaf.translatable)
+    // the walk treats every field as localized.
+    const { leaves } = describeTree(walkFields(block.fields, lang, true))
+    const fields = leaves
+      .filter((leaf) => leaf.translatable && !NOT_WORDS.has(leaf.name))
       .map((leaf) => ({ path: leaf.path, label: leaf.label, kind: leaf.kind }))
     if (fields.length === 0) continue
     out.push({
