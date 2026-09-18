@@ -74,7 +74,10 @@ export const reportHandler =
 
     if (kind === 'global') {
       const doc = (await req.payload.findGlobal({ slug, ...shared })) as AnyData
-      docs.push(buildDoc(doc, entity, locales, context.defaultLocale))
+      // A global nobody has saved yet holds no row, so Payload gives it no id.
+      // Its slug names it either way, and a caller that keys on the id must
+      // get something it can key on.
+      docs.push(buildDoc({ ...doc, id: doc.id ?? slug }, entity, locales, context.defaultLocale))
     } else {
       const where = since ? { updatedAt: { greater_than: since } } : undefined
       const result = (await req.payload.find({
