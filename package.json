@@ -1,6 +1,6 @@
 {
   "name": "@studiomonty/payload-polyglot",
-  "version": "0.12.2",
+  "version": "0.13.0",
   "description": "Exposes the translation state of a Payload project over HTTP, and applies translations with the Local API.",
   "license": "MIT",
   "type": "module",
@@ -31,6 +31,16 @@
       "types": "./dist/icu.d.ts",
       "import": "./dist/icu.js",
       "default": "./dist/icu.js"
+    },
+    "./strings": {
+      "types": "./dist/strings/index.d.ts",
+      "import": "./dist/strings/index.js",
+      "default": "./dist/strings/index.js"
+    },
+    "./strings/sync": {
+      "types": "./dist/strings/sync.d.ts",
+      "import": "./dist/strings/sync.js",
+      "default": "./dist/strings/sync.js"
     }
   },
   "files": [

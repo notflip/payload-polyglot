@@ -5,8 +5,11 @@ import { manifestHandler } from './endpoints/manifest.js'
 import { readHandler } from './endpoints/read.js'
 import { refreshHandler } from './endpoints/refresh.js'
 import { reportHandler } from './endpoints/report.js'
+import { stringsGlobal } from './strings/global.js'
 
 export type { PolyglotOptions } from './endpoints/http.js'
+export type { StringsOptions } from './strings/global.js'
+export { stringsGlobal } from './strings/global.js'
 export * from './types.js'
 
 /**
@@ -23,6 +26,9 @@ export * from './types.js'
  * - `GET  /read`      the full values of one document in two locales
  * - `POST /apply`     write translations into one locale
  * - `POST /refresh`   let the project drop the caches of one document, once
+ *
+ * With `strings`, it also adds the global that holds the fixed words of the
+ * interface. See `stringsGlobal` and `polyglotMessages`.
  */
 export const polyglotPlugin =
   (options: PolyglotOptions = {}): Plugin =>
@@ -38,8 +44,16 @@ export const polyglotPlugin =
       { path: `${base}/refresh`, method: 'post' as const, handler: refreshHandler(options) },
     ]
 
+    const globals = options.strings
+      ? [
+          ...(incoming.globals ?? []),
+          stringsGlobal(options.strings === true ? {} : options.strings),
+        ]
+      : incoming.globals
+
     return {
       ...incoming,
+      globals,
       endpoints: [...(incoming.endpoints ?? []), ...endpoints] as Config['endpoints'],
     }
   }

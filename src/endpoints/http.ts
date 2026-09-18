@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto'
+import type { StringsOptions } from '../strings/global.js'
 
 type AnyReq = Record<string, any>
 
@@ -21,6 +22,11 @@ export type PolyglotOptions = {
   access?: (args: { req: AnyReq; write: boolean }) => boolean | Promise<boolean>
   /** Base path of the endpoints. Default `/polyglot`. */
   path?: string
+  /**
+   * Add the strings global to the config, for the fixed words of the
+   * interface. `true` takes the defaults. See `StringsOptions`.
+   */
+  strings?: boolean | StringsOptions
   /** Turn the plugin off without removing it from the config. */
   disabled?: boolean
 }
