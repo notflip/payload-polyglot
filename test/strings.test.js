@@ -7,7 +7,7 @@ import {
   messagesFromItems,
   polyglotMessages,
 } from '../dist/strings/messages.js'
-import { rowId } from '../dist/strings/sync.js'
+import { rowId } from '../dist/strings/rowId.js'
 
 test('a later source wins one key and leaves the rest of the namespace', () => {
   const merged = mergeMessages(
@@ -119,4 +119,77 @@ test('the options reach the global', () => {
   assert.equal(global.label, 'Interface texts')
   assert.equal(global.hooks, hooks)
   assert.equal(global.fields[0].fields[0].label, 'Key')
+})
+
+/** Payload hands a hook the request. Only these two fields are read. */
+const request = (locale) => ({ locale, payload: { config: { localization: { defaultLocale: 'nl' } } } })
+
+const DEFAULTS = { Work: { next: 'Volgende', previous: 'Vorige' } }
+
+function read(global, doc, locale) {
+  return global.hooks.afterRead[0]({ doc, req: request(locale) })
+}
+
+test('the global fills itself from the code', () => {
+  const global = stringsGlobal({ defaults: DEFAULTS })
+  const { items } = read(global, { items: [] }, 'nl')
+
+  assert.deepEqual(
+    items.map(({ key, value }) => [key, value]),
+    [
+      ['Work.next', 'Volgende'],
+      ['Work.previous', 'Vorige'],
+    ],
+  )
+  assert.match(items[0].id, /^[0-9a-f]{24}$/)
+})
+
+test('a language that is not the default one starts empty', () => {
+  const global = stringsGlobal({ defaults: DEFAULTS })
+  const { items } = read(global, { items: [] }, 'en')
+  assert.deepEqual(items.map((item) => item.value), [null, null])
+})
+
+test('a stored row keeps its id and its text', () => {
+  const global = stringsGlobal({ defaults: DEFAULTS })
+  const stored = { items: [{ id: 'kept', key: 'Work.next', value: 'Verder' }] }
+  const { items } = read(global, stored, 'nl')
+
+  assert.equal(items[0].id, 'kept')
+  assert.equal(items[0].value, 'Verder')
+  assert.equal(items[1].value, 'Vorige')
+})
+
+test('a read of every language fills only the default one', () => {
+  const global = stringsGlobal({ defaults: DEFAULTS })
+  const stored = { items: [{ id: 'kept', key: 'Work.next', value: { nl: 'Verder', en: 'Onward' } }] }
+  const { items } = read(global, stored, 'all')
+
+  assert.deepEqual(items[0].value, { nl: 'Verder', en: 'Onward' })
+  assert.deepEqual(items[1].value, { nl: 'Vorige' })
+})
+
+test('a key that left the code is not shown', () => {
+  const global = stringsGlobal({ defaults: DEFAULTS })
+  const stored = { items: [{ id: 'old', key: 'Work.gone', value: 'Weg' }] }
+  const { items } = read(global, stored, 'nl')
+  assert.deepEqual(items.map((item) => item.key), ['Work.next', 'Work.previous'])
+})
+
+test('several trees merge, and a later one wins', () => {
+  const global = stringsGlobal({ defaults: [DEFAULTS, { Work: { next: 'Verder' } }] })
+  const { items } = read(global, { items: [] }, 'nl')
+  assert.deepEqual(items.map((item) => item.value), ['Verder', 'Vorige'])
+})
+
+test('the project hooks survive the one the plugin adds', () => {
+  const mine = () => {}
+  const global = stringsGlobal({ defaults: DEFAULTS, hooks: { afterChange: [mine], afterRead: [mine] } })
+  assert.deepEqual(global.hooks.afterChange, [mine])
+  assert.equal(global.hooks.afterRead[0], mine)
+  assert.equal(global.hooks.afterRead.length, 2)
+})
+
+test('without defaults the global has no read hook', () => {
+  assert.equal(stringsGlobal().hooks, undefined)
 })

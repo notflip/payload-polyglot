@@ -153,17 +153,36 @@ Turn on `strings` and the plugin adds a global that holds those keys, so
 Polyglot translates them like any other localized field.
 
 ```ts
+// src/payload.config.ts
+import kitMessages from '@kit/messages/nl.json'
+import messages from '../messages/nl.json'
+
 polyglotPlugin({
   secret: process.env.POLYGLOT_SECRET,
   strings: {
+    defaults: [kitMessages, messages],
     access: { read: () => true, update: isAuthenticated },
     hooks: { afterChange: [revalidateGlobal] },
   },
 })
 ```
 
+`defaults` is what makes this cost nothing to keep in step. The files own the
+list of keys, and the global reads that list on every read, so a key added in
+the code is in the admin at once. There is no script to run and nothing to
+remember.
+
 Give it the revalidation hook of the project. Without it an edited text waits
 for the next deploy.
+
+A row that is stored keeps its id and its translations. A key that is not
+stored yet is added to the document that is read, and written for real the
+first time anyone saves the global or applies a translation. A key that left
+the code is not shown, and its row waits in the database in case the key comes
+back.
+
+The text of the default language comes from the files. Every other language
+starts empty, so a translation that was never made is never reported as done.
 
 ### Read them on the request
 
@@ -184,10 +203,10 @@ translated key inside `Navigation` would drop the rest of it.
 Nothing here takes the site down. A language without a file is skipped, and a
 database that is not reachable returns nothing. The files carry every key.
 
-### Carry the keys into Payload
+### A project that does not pass `defaults`
 
-An array field cannot invent a row, so a key that exists only in a file has
-nothing to translate. Copy the keys over after adding one:
+Then the rows have to be written, and `syncStrings` does it. This is the older
+route; `defaults` replaces it.
 
 ```ts
 // src/scripts/syncStrings.ts
@@ -195,31 +214,19 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import { syncStrings } from '@studiomonty/payload-polyglot/strings/sync'
 
-const result = await syncStrings({
+await syncStrings({
   payload: await getPayload({ config }),
   locale: 'nl',
   dirs: ['messages'],
 })
-
-console.log(`${result.total} keys, ${result.added.length} new`)
 process.exit(0)
 ```
-
-```json
-"strings:sync": "payload run ./src/scripts/syncStrings.ts"
-```
-
-It never overwrites a text that is there, and it writes no language but the one
-given. A key that left the code leaves the global with it.
-
-A new row gets an id derived from its key, so one key is one row in every
-environment. That id joins the languages of a row: Payload hangs the translated
-value from it. This is why a row is updated and never recreated.
 
 ### Options of the global
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `defaults` | none | The message trees of the code. The global then fills itself. |
 | `slug` | `translations` | Slug of the global. |
 | `access` | read by anyone, write by a user | Access of the global. |
 | `hooks` | none | Hooks of the global. Put the revalidation hook here. |
@@ -399,7 +406,7 @@ from the source.
 
 ```bash
 pnpm build       # compile to dist
-pnpm test        # 90 unit tests, no database needed
+pnpm test        # 98 unit tests, no database needed
 pnpm typecheck
 ```
 

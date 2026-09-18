@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { flattenMessages, type MessageTree } from './messages.js'
+import { rowId } from './rowId.js'
 
 type AnyPayload = Record<string, any>
 
@@ -25,21 +25,6 @@ export type SyncStringsResult = {
   removed: string[]
 }
 
-/**
- * A row id that follows from the key.
- *
- * The id joins the languages of one row: Payload hangs the translated value
- * from it. A deterministic id gives a key the same row in every environment,
- * so a key synced on a laptop and the same key synced on the server are one
- * row and not two.
- *
- * Twenty four hexadecimal characters, the shape Payload gives a row of its
- * own.
- */
-export function rowId(key: string): string {
-  return createHash('sha1').update(key).digest('hex').slice(0, 24)
-}
-
 async function readTree(file: string): Promise<MessageTree> {
   try {
     return JSON.parse(await readFile(file, 'utf8')) as MessageTree
@@ -52,6 +37,9 @@ async function readTree(file: string): Promise<MessageTree> {
 
 /**
  * Copy the keys of the JSON files into the strings global.
+ *
+ * A project that passes `defaults` to `stringsGlobal` needs none of this: the
+ * global fills itself on read. This stays for a project that does not.
  *
  * The files own the list of keys. This carries them, and their text in the
  * language they are written in, into Payload so they can be translated.
