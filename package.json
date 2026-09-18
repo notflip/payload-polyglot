@@ -1,6 +1,6 @@
 {
   "name": "@studiomonty/payload-polyglot",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Exposes the translation state of a Payload project over HTTP, and applies translations with the Local API.",
   "license": "MIT",
   "type": "module",
@@ -41,6 +41,11 @@
       "types": "./dist/strings/sync.d.ts",
       "import": "./dist/strings/sync.js",
       "default": "./dist/strings/sync.js"
+    },
+    "./strings/pull": {
+      "types": "./dist/strings/pull.d.ts",
+      "import": "./dist/strings/pull.js",
+      "default": "./dist/strings/pull.js"
     }
   },
   "files": [
@@ -82,5 +87,8 @@
   "homepage": "https://github.com/notflip/payload-polyglot#readme",
   "bugs": {
     "url": "https://github.com/notflip/payload-polyglot/issues"
+  },
+  "bin": {
+    "polyglot-pull": "./dist/cli.js"
   }
 }

@@ -36,6 +36,10 @@ export default buildConfig({
 })
 ```
 
+To translate the fixed words of the interface as well — buttons, labels,
+messages — add the `strings` option here. See **Interface strings** below. It
+costs one option in this file and two lines in `i18n/request.ts`.
+
 ### 3. Put a secret in the environment
 
 ```bash
@@ -202,6 +206,51 @@ translated key inside `Navigation` would drop the rest of it.
 
 Nothing here takes the site down. A language without a file is skipped, and a
 database that is not reachable returns nothing. The files carry every key.
+
+### Pull the translations back into the files
+
+The files slowly become a lie. An editor changes a word in the admin, the file
+still holds the old one, and a developer reads text that is not on the site.
+
+```bash
+pnpm exec polyglot-pull --url https://example.com --locales nl,en --dirs messages
+git diff messages/
+```
+
+It reads the global over the REST API of the site, so it needs no database and
+no Payload instance. Point it at production: that is where the texts an editor
+wrote actually live.
+
+**Run it when you start work, never when you finish.** A pull at the end meets
+the keys you wrote this morning, which production does not have yet.
+
+Three rules make it safe to run without thinking:
+
+- **It merges.** A key that is not already in a file is never added, and no key
+  is ever removed. The key list belongs to the code.
+- **It skips an empty value.** A cleared field never writes an empty string
+  over a real default.
+- **It reads with `fallback-locale=null`.** Without that, a project with the
+  fallback on hands back the default language for every untranslated key, and
+  the pull would write Dutch into the English file as if someone had
+  translated it.
+
+A key goes into the file that already carries it, so a project with a shared
+kit folder and a project folder keeps them apart:
+
+```bash
+pnpm exec polyglot-pull --url https://example.com --locales nl,en \
+  --dirs src/studio-kit/messages,messages
+```
+
+Add `--dry` to see the changes and write nothing. Add `--key <api key>` if the
+project does not let the world read the global.
+
+One thing to know before you adopt this. After a pull, a text an editor
+**clears** in the admin stops having an effect: the global returns nothing for
+that key, so the file wins, and the file now holds the text the pull wrote. The
+editor clears the field and the site does not change. Clearing is not how a
+text is changed — writing over it is — but it is worth saying out loud.
 
 ### A project that does not pass `defaults`
 
@@ -406,7 +455,7 @@ from the source.
 
 ```bash
 pnpm build       # compile to dist
-pnpm test        # 98 unit tests, no database needed
+pnpm test        # 106 unit tests, no database needed
 pnpm typecheck
 ```
 
