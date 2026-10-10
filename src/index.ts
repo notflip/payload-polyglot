@@ -17,7 +17,7 @@ export * from './types.js'
  * translations through the Local API.
  *
  * ```ts
- * plugins: [polyglotPlugin({ secret: process.env.POLYGLOT_SECRET })]
+ * plugins: [polyglotPlugin()]
  * ```
  *
  * Endpoints, all under `/api/polyglot`:

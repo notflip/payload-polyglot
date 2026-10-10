@@ -8,7 +8,7 @@ instance, so the plugin needs no version check.
 
 ## Add Polyglot to a project
 
-Nine steps. About ten minutes per project. Do them in this order.
+Eight steps. About ten minutes per project. Do them in this order.
 
 ### 1. Install the package
 
@@ -31,7 +31,7 @@ import { polyglotPlugin } from '@studiomonty/payload-polyglot'
 export default buildConfig({
   // ...
   plugins: [
-    polyglotPlugin({ secret: process.env.POLYGLOT_SECRET }),
+    polyglotPlugin(),
   ],
 })
 ```
@@ -40,27 +40,14 @@ To translate the fixed words of the interface as well — buttons, labels,
 messages — add the `strings` option here. See **Interface strings** below. It
 costs one option in this file and two lines in `i18n/request.ts`.
 
-### 3. Put a secret in the environment
-
-```bash
-openssl rand -hex 32
-```
-
-```
-POLYGLOT_SECRET=<the value you just made>
-```
-
-Add the same line to the environment of the hosting provider. The secret is
-optional, but read "Which credential does what" below before you leave it out.
-
-### 4. Turn on API keys for the user collection
+### 3. Turn on API keys for the user collection
 
 ```ts
 // src/collections/Users.ts
 auth: { useAPIKey: true },
 ```
 
-### 5. Make an API key
+### 4. Make an API key
 
 Open your own user in the Payload admin, tick **Enable API Key**, save, and
 copy the key. Polyglot reads and writes as that user, so that user needs access
@@ -72,7 +59,7 @@ The Studio Monty kit has a script for this:
 pnpm tsx src/scripts/polyglot-key.ts
 ```
 
-### 6. Make the revalidation hooks read `disableRevalidate`
+### 5. Make the revalidation hooks read `disableRevalidate`
 
 This is the step that keeps the site fast. Every hook that throws away pages
 must start with a guard:
@@ -89,24 +76,23 @@ The Payload website template and the Studio Monty kit already do this. Without
 it the site is rebuilt on every translation write instead of once per document.
 Nothing breaks; the site is just slower. See "Saving and publishing" below.
 
-### 7. Deploy the project
+### 6. Deploy the project
 
 The endpoints live on the running project, so the hub can only read a project
 that is deployed and reachable.
 
-### 8. Check the endpoints by hand
+### 7. Check the endpoints by hand
 
 ```bash
 curl -s https://<the project>/api/polyglot/manifest \
-  -H "x-polyglot-secret: $POLYGLOT_SECRET" \
   -H "authorization: users API-Key $POLYGLOT_API_KEY" | head -40
 ```
 
 Expect JSON with `localization`, `entities` and a `leaves` list per entity. A
-`403` means the secret or the key is wrong. A `404` means the plugin is not in
+`403` means the key is wrong. A `404` means the plugin is not in
 the running build.
 
-### 9. Connect it in the hub
+### 8. Connect it in the hub
 
 Open the hub, go to **Connections**, and give it:
 
@@ -114,8 +100,7 @@ Open the hub, go to **Connections**, and give it:
 | --- | --- |
 | Name | the name you want to read in the rail |
 | Address of the project | `https://<the project>` |
-| API key of a Payload user | the key from step 5 |
-| Plugin secret | the `POLYGLOT_SECRET` of that project. It hides behind "The project sets a plugin secret". |
+| API key of a Payload user | the key from step 4 |
 
 Saving reads the project once and says what came back. The address of the admin
 panel is taken as `<address>/admin`.
@@ -124,7 +109,7 @@ The form sends the key as a key of the `users` collection. A project that names
 its auth collection differently has to be connected from the command line:
 
 ```bash
-pnpm --filter hub cli project:add <slug> <name> <address> <secret> <key> <collection>
+pnpm --filter hub cli project:add <slug> <name> <address> <key> <collection>
 ```
 
 ### Updating the plugin later
@@ -134,16 +119,14 @@ pnpm update @studiomonty/payload-polyglot
 ```
 
 The repository is public, so no credentials are needed to install it. The
-package reads its secret and its API key from the project environment, never
-from the source.
+hub holds the API key, so the package needs no credential in the project.
 
 ## Options
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `secret` | none | An extra shared secret, sent as `x-polyglot-secret`. Optional. See below. |
 | `labelLanguage` | `nl` | Language of the field labels in the manifest. |
-| `access` | a logged-in user, for reads and writes alike | Extra check on top of the secret. |
+| `access` | a logged-in user, for reads and writes alike | Who may use the endpoints. |
 | `path` | `/polyglot` | Base path of the endpoints. |
 | `strings` | `false` | Add the interface strings global. See below. |
 | `disabled` | `false` | Turn the plugin off without removing it. |
@@ -163,7 +146,6 @@ import kitMessages from '@kit/messages/nl.json'
 import messages from '../messages/nl.json'
 
 polyglotPlugin({
-  secret: process.env.POLYGLOT_SECRET,
   strings: {
     defaults: [kitMessages, messages],
     access: { read: () => true, update: isAuthenticated },
@@ -371,7 +353,7 @@ is pressed.
 Two things to know:
 
 - A project whose hooks ignore `context.disableRevalidate` rebuilds on every
-  write, as it always did. Step 6 of the install is what prevents that.
+  write, as it always did. Step 5 of the install is what prevents that.
 - `/refresh` writes a new `updatedAt` and one new version row, because that is
   what any save in the admin panel does. The content does not change.
 
@@ -427,15 +409,10 @@ Reading is guarded as strictly as writing on purpose. `GET /report` lists every
 field, every path and a preview of every value in every language. That is the
 whole content of the site, so it is not a public thing.
 
-**The secret is a second lock, and it is optional.** It protects two cases:
-
-- A project with `admin.autoLogin` signs in **every** request in development,
-  with no credentials at all. The user check then protects nothing, and the
-  secret is all that is left. Set it on those projects.
-- A leaked API key is not enough on its own while a secret is also set.
-
-If neither case applies, the API key alone is enough and `secret` can be left
-out.
+One thing to know: a project with `admin.autoLogin` signs in **every** request
+in development, with no credentials at all. On such a project the endpoints are
+open while it runs in development. Production is not affected, because
+`autoLogin` is off there.
 
 ## Publishing
 
@@ -482,4 +459,4 @@ line breaks):
   source language
 - a write creates one new version row and does not touch the published rows
 - a stale `updatedAt` returns `409`, a derived field returns `400`, an unknown
-  path returns `404`, and a wrong or missing secret returns `403`
+  path returns `404`, and a wrong or missing API key returns `403`
