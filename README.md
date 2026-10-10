@@ -133,8 +133,9 @@ pnpm --filter hub cli project:add <slug> <name> <address> <secret> <key> <collec
 pnpm update @studiomonty/payload-polyglot
 ```
 
-The hub names the version it needs on the Connections page. A project on an
-older plugin is marked there.
+The repository is public, so no credentials are needed to install it. The
+package reads its secret and its API key from the project environment, never
+from the source.
 
 ## Options
 
@@ -142,7 +143,7 @@ older plugin is marked there.
 | --- | --- | --- |
 | `secret` | none | An extra shared secret, sent as `x-polyglot-secret`. Optional. See below. |
 | `labelLanguage` | `nl` | Language of the field labels in the manifest. |
-| `access` | a write needs a logged-in user | Extra check on top of the secret. |
+| `access` | a logged-in user, for reads and writes alike | Extra check on top of the secret. |
 | `path` | `/polyglot` | Base path of the endpoints. |
 | `strings` | `false` | Add the interface strings global. See below. |
 | `disabled` | `false` | Turn the plugin off without removing it. |
@@ -294,18 +295,20 @@ translatable. This list is the denominator of every completion figure.
 ### `GET /report`
 
 Query: `entity`, `kind` (`collection` or `global`), `state` (`published` or
-`draft`), `since`, `page`, `limit`.
+`draft`), `since`, `page`, `limit`, `trash`.
 
-Reads documents with `locale: 'all'` and `fallbackLocale: null`, so an empty
+Reads documents with `locale: 'all'` and `fallbackLocale: false`, so an empty
 target locale stays empty instead of showing the source text. Returns one unit
 per localized leaf, with a status, a hash, a length and a 160-character preview
 per locale. The full value never leaves the project here.
 
 ### `GET /read`
 
-Query: `entity`, `kind`, `id`, `source`, `target`, `state`.
+Query: `entity`, `kind`, `id`, `source`, `targets`, `state`.
 
-The full values of one document in two locales, for the side by side editor.
+The full values of one document in the source locale and in each target
+locale, for the side by side editor. `targets` is a list separated by commas;
+leave it out to get every locale but the source.
 
 ### `POST /refresh`
 
@@ -440,16 +443,6 @@ out.
 uses `publishAllLocales`. When Payload does not localize `_status`, both publish
 the whole document. The manifest reports `statusScope`, so the hub can label the
 button correctly.
-
-## Updating the plugin in a project
-
-```bash
-pnpm update @studiomonty/payload-polyglot
-```
-
-The repository is public, so no credentials are needed to install it. The
-package reads its secret and its API key from the project environment, never
-from the source.
 
 ## Development
 

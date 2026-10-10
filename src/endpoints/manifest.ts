@@ -14,6 +14,6 @@ export const manifestHandler =
   async (req: AnyReq): Promise<Response> => {
     const refused = await guard(req, options, false)
     if (refused) return refused
-    const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')
+    const context = cachedContext(req.payload, options.labelLanguage)
     return json(200, context.manifest)
   }

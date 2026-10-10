@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { describeTree, hasLocalizedLeaf, resolveStatusScope, walkFields } from '../dist/schema.js'
-import { collectUnits, collectValues, getByPath, MISSING, parsePath, setByPath, topLevelField } from '../dist/flatten.js'
+import { describeTree, resolveStatusScope, walkFields } from '../dist/schema.js'
+import { collectUnits, collectValues, topLevelField } from '../dist/flatten.js'
+import { getByPath, MISSING, parsePath, setByPath } from '../dist/path.js'
 import { evaluate, normalize } from '../dist/status.js'
 
 /** Mirrors the shape of child-focus-web: pages with a seo group and a faq block. */
@@ -129,8 +130,8 @@ test('reads the status scope from the injected field', () => {
 })
 
 test('an entity without a localized field is skipped', () => {
-  assert.equal(hasLocalizedLeaf(walkFields([{ name: 'x', type: 'text' }], 'nl', false)), false)
-  assert.equal(hasLocalizedLeaf(tree), true)
+  assert.equal(describeTree(walkFields([{ name: 'x', type: 'text' }], 'nl', false)).leaves.length, 0)
+  assert.equal(describeTree(tree).leaves.length > 0, true)
 })
 
 // ---------------------------------------------------------------------------

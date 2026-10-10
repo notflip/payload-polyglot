@@ -14,18 +14,6 @@ type AnyNode = Record<string, any>
 
 export type LexicalRoot = { root: AnyNode }
 
-/** Nodes that start a new translatable unit. One unit is one string to translate. */
-const BLOCK_LEVEL = new Set([
-  'paragraph',
-  'heading',
-  'quote',
-  'listitem',
-  'tablecell',
-])
-
-/** Nodes that carry meaning but no text. Their presence stops a "no text" gap. */
-const MEDIA_NODES = new Set(['upload', 'block', 'horizontalrule', 'table', 'relationship'])
-
 /** Bit values of the lexical `format` mask, in the order tags nest. */
 export const FORMAT_TAGS: [number, string][] = [
   [1, 'b'],
@@ -91,6 +79,13 @@ export function extractSegments(doc: unknown): TextSegment[] {
   const linkCounters = new Map<string, number>()
   const atomicCounters = new Map<string, number>()
 
+  // A mark for an inline node that holds no text but must keep its place.
+  const atomic = (addr: string, unit: string, label: string): void => {
+    const seen = atomicCounters.get(unit) ?? 0
+    atomicCounters.set(unit, seen + 1)
+    out.push({ addr, unit, text: '', format: 0, atomicIndex: seen, atomicLabel: label })
+  }
+
   const walk = (node: AnyNode | undefined, addr: string, unit: string, linkIndex?: number): void => {
     if (!node || typeof node !== 'object') return
     const type = String(node.type ?? '')
@@ -108,9 +103,7 @@ export function extractSegments(doc: unknown): TextSegment[] {
     }
 
     if (ATOMIC_NODES.has(type)) {
-      const seen = atomicCounters.get(unit) ?? 0
-      atomicCounters.set(unit, seen + 1)
-      out.push({ addr, unit, text: '', format: 0, atomicIndex: seen, atomicLabel: type })
+      atomic(addr, unit, type)
       return
     }
 
@@ -127,7 +120,7 @@ export function extractSegments(doc: unknown): TextSegment[] {
     if (type === 'upload' || type === 'block' || type === 'relationship') {
       for (const [key, value] of Object.entries(node.fields ?? {})) {
         if (isLexical(value)) {
-          walk((value as LexicalRoot).root, `${addr}/fields.${key}`, `${addr}/fields.${key}`)
+          walk(value.root, `${addr}/fields.${key}`, `${addr}/fields.${key}`)
         }
       }
       return
@@ -139,13 +132,12 @@ export function extractSegments(doc: unknown): TextSegment[] {
     // place in the sentence, so it becomes a mark the translation must keep.
     // Without this the write-back would rebuild the sentence without it.
     if (addr !== unit && (node.children ?? []).length === 0) {
-      const seen = atomicCounters.get(unit) ?? 0
-      atomicCounters.set(unit, seen + 1)
-      out.push({ addr, unit, text: '', format: 0, atomicIndex: seen, atomicLabel: labelOfObject(node) })
+      atomic(addr, unit, labelOfObject(node))
       return
     }
 
-    const nextUnit = BLOCK_LEVEL.has(type) ? addr : unit
+    // A block-level node starts a new unit. One unit is one string to translate.
+    const nextUnit = ['paragraph', 'heading', 'quote', 'listitem', 'tablecell'].includes(type) ? addr : unit
     for (const [i, child] of (node.children ?? []).entries()) {
       walk(child, `${addr}/${i}`, nextUnit, linkIndex)
     }
@@ -164,20 +156,19 @@ export function extractPlainText(doc: unknown): string {
     .join(' ')
 }
 
-/** True when the document holds an upload, a table, a rule or an embedded block. */
+/**
+ * True when the document holds an upload, a table, a rule or an embedded block.
+ * These carry meaning but no text, so their presence stops a "no text" gap.
+ */
 export function hasMediaNodes(doc: unknown): boolean {
-  if (!isLexical(doc)) return false
-  let found = false
-  const walk = (node: AnyNode | undefined): void => {
-    if (found || !node || typeof node !== 'object') return
-    if (MEDIA_NODES.has(String(node.type ?? ''))) {
-      found = true
-      return
-    }
-    for (const child of node.children ?? []) walk(child)
+  const walk = (node: AnyNode | undefined): boolean => {
+    if (!node || typeof node !== 'object') return false
+    return (
+      ['upload', 'block', 'horizontalrule', 'table', 'relationship'].includes(String(node.type ?? '')) ||
+      (node.children ?? []).some(walk)
+    )
   }
-  walk(doc.root)
-  return found
+  return isLexical(doc) && walk(doc.root)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,9 +205,8 @@ export type TranslationUnit = {
  * by index, so an internal link keeps its relation.
  */
 export function toUnits(doc: unknown): TranslationUnit[] {
-  const segments = extractSegments(doc)
   const byUnit = new Map<string, TextSegment[]>()
-  for (const segment of segments) {
+  for (const segment of extractSegments(doc)) {
     const list = byUnit.get(segment.unit)
     if (list) list.push(segment)
     else byUnit.set(segment.unit, [segment])
@@ -256,10 +246,9 @@ function describeLinks(doc: unknown, unit: string): UnitLink[] {
       if (url) {
         links.push({ index: links.length, target: url, kind: 'address' })
       } else if (related) {
-        const value = typeof related.value === 'object' ? related.value?.id : related.value
         links.push({
           index: links.length,
-          target: `${related.relationTo ?? 'document'} ${value ?? '?'}`,
+          target: `${related.relationTo ?? 'document'} ${(typeof related.value === 'object' ? related.value?.id : related.value) ?? '?'}`,
           kind: 'page',
         })
       } else {
@@ -341,8 +330,7 @@ export function parseTagged(tagged: string): TaggedRun[] {
 
   const flush = () => {
     if (buffer === '') return
-    const format = formatStack.reduce((acc, bit) => acc | bit, 0)
-    const run: TaggedRun = { text: unescapeText(buffer), format }
+    const run: TaggedRun = { text: unescapeText(buffer), format: formatStack.reduce((acc, bit) => acc | bit, 0) }
     if (linkIndex !== undefined) run.linkIndex = linkIndex
     runs.push(run)
     buffer = ''
@@ -415,7 +403,7 @@ function getByAddr(doc: LexicalRoot, addr: string): AnyNode | undefined {
     if (!node) return undefined
     if (part.startsWith('fields.')) {
       const value: unknown = node.fields?.[part.slice(7)]
-      node = isLexical(value) ? (value as LexicalRoot).root : undefined
+      node = isLexical(value) ? value.root : undefined
       continue
     }
     node = node.children?.[Number(part)]
@@ -445,15 +433,16 @@ export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source
   const parent = getByAddr(doc, unit)
   if (!parent) throw new TagMismatchError(`unit ${unit} not found`)
 
-  const sourceLinks = new Set(source.filter((s) => s.linkIndex !== undefined).map((s) => s.linkIndex))
-  const runLinks = new Set(runs.filter((r) => r.linkIndex !== undefined).map((r) => r.linkIndex))
-  if (sourceLinks.size !== runLinks.size || [...runLinks].some((k) => !sourceLinks.has(k))) {
+  // The translation must use the same marks as the source, each one by index.
+  const sameMarks = (pick: (item: { linkIndex?: number; atomicIndex?: number }) => number | undefined): boolean => {
+    const want = new Set(source.map(pick).filter((k) => k !== undefined))
+    const got = new Set(runs.map(pick).filter((k) => k !== undefined))
+    return want.size === got.size && [...got].every((k) => want.has(k))
+  }
+  if (!sameMarks((item) => item.linkIndex)) {
     throw new TagMismatchError(`unit ${unit}: link indices do not match the source`)
   }
-
-  const sourceAtomics = new Set(source.filter((s) => s.atomicIndex !== undefined).map((s) => s.atomicIndex))
-  const runAtomics = new Set(runs.filter((r) => r.atomicIndex !== undefined).map((r) => r.atomicIndex))
-  if (sourceAtomics.size !== runAtomics.size || [...runAtomics].some((k) => !sourceAtomics.has(k))) {
+  if (!sameMarks((item) => item.atomicIndex)) {
     throw new TagMismatchError(`unit ${unit}: the line breaks or components do not match the source`)
   }
 
@@ -551,7 +540,7 @@ export function applySegments(doc: LexicalRoot, replacements: Map<string, string
     }
     if (node.fields) {
       for (const [key, value] of Object.entries(node.fields)) {
-        if (isLexical(value)) walk((value as LexicalRoot).root, `${addr}/fields.${key}`)
+        if (isLexical(value)) walk(value.root, `${addr}/fields.${key}`)
       }
     }
     for (const [i, child] of (node.children ?? []).entries()) walk(child, `${addr}/${i}`)
@@ -579,9 +568,9 @@ export function assertRoundTrip(source: unknown, rebuilt: unknown): void {
         ...new Set(list.filter((s) => s.linkIndex !== undefined).map((s) => `a${s.linkIndex}`)),
         ...new Set(list.filter((s) => s.atomicIndex !== undefined).map((s) => `x${s.atomicIndex}`)),
       ].sort()
-    const a = marks(unit.segments).join(',')
-    const b = marks(other.segments).join(',')
-    if (a !== b) throw new TagMismatchError(`unit ${unit.unit}: a link, a line break or a component was lost`)
+    if (marks(unit.segments).join(',') !== marks(other.segments).join(',')) {
+      throw new TagMismatchError(`unit ${unit.unit}: a link, a line break or a component was lost`)
+    }
   }
 }
 
@@ -618,9 +607,6 @@ export type ComponentUnit = {
   suffix: string
   value: unknown
 }
-
-/** Both shapes Payload gives a component: in a sentence, and on its own line. */
-const COMPONENT_NODES = new Set(['block', 'inlineBlock'])
 
 /**
  * Expand a template over the data that is there.
@@ -675,7 +661,8 @@ export function componentUnits(doc: unknown, components: ComponentDescriptor[]):
   const walk = (node: AnyNode | undefined, addr: string): void => {
     if (!node || typeof node !== 'object') return
 
-    if (COMPONENT_NODES.has(String(node.type ?? ''))) {
+    // Both shapes Payload gives a component: in a sentence, and on its own line.
+    if (node.type === 'block' || node.type === 'inlineBlock') {
       const component = known.get(String(node.fields?.blockType ?? ''))
       if (component) {
         // Reading order: the order of the fields in the block, with a loop

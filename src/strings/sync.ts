@@ -59,15 +59,12 @@ export async function syncStrings({
     Object.assign(fromFiles, flattenMessages(await readTree(path.join(root, dir, `${locale}.json`))))
   }
 
-  const current = (await payload.findGlobal({
-    slug,
-    locale,
-    depth: 0,
-    overrideAccess: true,
-  })) as { items?: { id?: string; key?: string; value?: string }[] }
-
   const existing = new Map(
-    (current.items ?? [])
+    (
+      ((await payload.findGlobal({ slug, locale, depth: 0, overrideAccess: true })) as {
+        items?: { id?: string; key?: string; value?: string }[]
+      }).items ?? []
+    )
       .filter((item) => item.key)
       .map((item) => [item.key as string, item] as const),
   )

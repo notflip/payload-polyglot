@@ -1,7 +1,7 @@
 import { cachedContext } from '../context.js'
 import { collectUnits, collectValues } from '../flatten.js'
 import type { DocState, EntityKind, ReadResponse } from '../types.js'
-import { documentId, guard, json, query, type PolyglotOptions } from './http.js'
+import { documentId, findDoc, guard, json, query, type PolyglotOptions } from './http.js'
 
 type AnyReq = Record<string, any>
 type AnyData = Record<string, any>
@@ -29,7 +29,7 @@ export const readHandler =
     const id = documentId(params.get('id') ?? undefined)
     const state = (params.get('state') ?? 'published') as DocState
 
-    const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')
+    const context = cachedContext(req.payload, options.labelLanguage)
     const entity = context.entities.get(`${kind}:${slug}`)
     if (!entity) {
       return json(404, { ok: false, code: 'not_found', message: `unknown entity ${kind}:${slug}` })
@@ -54,19 +54,16 @@ export const readHandler =
       return json(400, { ok: false, code: 'validation', message: 'id is required' })
     }
 
-    const base = {
-      fallbackLocale: false,
-      depth: 0,
-      draft: state === 'draft',
-      overrideAccess: false,
-      user: req.user,
-      req,
-    }
-
-    const load = async (locale: string | 'all'): Promise<AnyData> =>
-      kind === 'global'
-        ? await req.payload.findGlobal({ slug, locale, ...base })
-        : await req.payload.findByID({ collection: slug, id, locale, ...base })
+    const load = (locale: string | 'all'): Promise<AnyData> =>
+      findDoc(req, kind, slug, id, {
+        locale,
+        fallbackLocale: false,
+        depth: 0,
+        draft: state === 'draft',
+        overrideAccess: false,
+        user: req.user,
+        req,
+      })
 
     // These reads run one after the other on purpose. Payload writes the active
     // locale onto the request object, so reads that share one request race and
@@ -90,7 +87,7 @@ export const readHandler =
 
     const rawTitle = entity.manifest.useAsTitle ? sourceDoc[entity.manifest.useAsTitle] : undefined
 
-    const response: ReadResponse = {
+    return json(200, {
       id: sourceDoc.id ?? id ?? slug,
       title: typeof rawTitle === 'string' && rawTitle !== '' ? rawTitle : `#${sourceDoc.id ?? slug}`,
       updatedAt: String(sourceDoc.updatedAt ?? ''),
@@ -100,6 +97,5 @@ export const readHandler =
       source: collectValues(entity.tree, sourceDoc),
       targets,
       units: collectUnits(entity.tree, allDoc, context.locales),
-    }
-    return json(200, response)
+    } satisfies ReadResponse)
   }

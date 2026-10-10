@@ -1,22 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { describeTree, hasLocalizedLeaf, readLabel, resolveStatusScope, walkFields } from './schema.js'
-import type { EntitySchema, SchemaNode } from './schema.js'
+import { describeTree, readLabel, resolveStatusScope, walkFields } from './schema.js'
+import type { EntitySchema } from './schema.js'
 import type { EntityManifest, LocaleDescriptor, Manifest } from './types.js'
 
 type AnyPayload = Record<string, any>
-
-/** Read from the package itself, so the number can never drift from the code. */
-export const POLYGLOT_VERSION: string = (() => {
-  try {
-    const here = fileURLToPath(new URL('../package.json', import.meta.url))
-    return (JSON.parse(readFileSync(here, 'utf8')) as { version?: string }).version ?? 'unknown'
-  } catch {
-    return 'unknown'
-  }
-})()
 
 /**
  * The version of the Payload package this project runs.
@@ -24,10 +13,9 @@ export const POLYGLOT_VERSION: string = (() => {
  * up from the resolved entry point.
  */
 function payloadVersion(): string {
-  const require = createRequire(import.meta.url)
   const roots: string[] = []
   try {
-    roots.push(dirname(require.resolve('payload')))
+    roots.push(dirname(createRequire(import.meta.url).resolve('payload')))
   } catch {
     // The bundler may hide the module from a runtime resolve.
   }
@@ -58,8 +46,7 @@ const RTL_LOCALES = new Set(['ar', 'he', 'fa', 'ur', 'yi', 'dv', 'ps'])
 
 export type PolyglotContext = {
   manifest: Manifest
-  /** The walked field tree per entity, keyed by `<kind>:<slug>`. */
-  trees: Map<string, SchemaNode[]>
+  /** The walked field tree and the manifest per entity, keyed by `<kind>:<slug>`. */
   entities: Map<string, EntitySchema>
   locales: string[]
   defaultLocale: string
@@ -71,8 +58,7 @@ function describeLocales(localization: AnyPayload | false | undefined): {
   fallback: boolean
 } {
   if (!localization) return { locales: [], defaultLocale: '', fallback: false }
-  const raw = (localization.locales ?? []) as (string | AnyPayload)[]
-  const locales = raw.map((entry) => {
+  const locales = ((localization.locales ?? []) as (string | AnyPayload)[]).map((entry) => {
     const code = typeof entry === 'string' ? entry : String(entry.code)
     const descriptor: LocaleDescriptor = {
       code,
@@ -96,7 +82,7 @@ function draftsOf(versions: AnyPayload | undefined): false | { autosave: false |
   if (!drafts) return false
   const autosave = typeof drafts === 'object' ? drafts.autosave : false
   if (!autosave) return { autosave: false }
-  return { autosave: { interval: Number(autosave?.interval ?? 800) } }
+  return { autosave: { interval: Number(autosave.interval ?? 800) } }
 }
 
 /**
@@ -105,20 +91,15 @@ function draftsOf(versions: AnyPayload | undefined): false | { autosave: false |
  * Every fact comes from the running Payload instance, so the plugin works the
  * same on Payload 3.39 and on 3.88 without a version check.
  */
-export function buildContext(payload: AnyPayload, labelLanguage: string): PolyglotContext {
+function buildContext(payload: AnyPayload, labelLanguage: string): PolyglotContext {
   const config = payload.config as AnyPayload
   const localization = describeLocales(config.localization)
-  const localizationEnabled = localization.locales.length > 0
-
-  const trees = new Map<string, SchemaNode[]>()
   const entities = new Map<string, EntitySchema>()
-  const manifestEntities: EntityManifest[] = []
 
   const add = (kind: 'collection' | 'global', entity: AnyPayload) => {
     const slug = String(entity.slug)
     const tree = walkFields(entity.fields, labelLanguage, false)
-    if (!hasLocalizedLeaf(tree)) return
-
+    // An entity without a localized field has nothing to translate.
     const { leaves, containers } = describeTree(tree)
     if (leaves.length === 0) return
 
@@ -140,9 +121,7 @@ export function buildContext(payload: AnyPayload, labelLanguage: string): Polygl
     }
     if (typeof entity.admin?.group === 'string') manifest.adminGroup = entity.admin.group
 
-    trees.set(`${kind}:${slug}`, tree)
-    entities.set(`${kind}:${slug}`, { kind, slug, tree, manifest })
-    manifestEntities.push(manifest)
+    entities.set(`${kind}:${slug}`, { tree, manifest })
   }
 
   for (const collection of (config.collections ?? []) as AnyPayload[]) add('collection', collection)
@@ -150,16 +129,10 @@ export function buildContext(payload: AnyPayload, labelLanguage: string): Polygl
 
   return {
     manifest: {
-      polyglotVersion: POLYGLOT_VERSION,
       payloadVersion: payloadVersion(),
-      localization: {
-        locales: localization.locales,
-        defaultLocale: localization.defaultLocale,
-        fallback: localization.fallback,
-      },
-      entities: manifestEntities,
+      localization,
+      entities: [...entities.values()].map((entity) => entity.manifest),
     },
-    trees,
     entities,
     locales: localization.locales.map((l) => l.code),
     defaultLocale: localization.defaultLocale,
@@ -170,11 +143,10 @@ export function buildContext(payload: AnyPayload, labelLanguage: string): Polygl
  * The context is derived from the config, which never changes while the process
  * runs. Building it once keeps every request cheap.
  */
-export function cachedContext(payload: AnyPayload, labelLanguage: string): PolyglotContext {
-  const store = payload as AnyPayload
-  if (!store.__polyglotContext || store.__polyglotLabelLanguage !== labelLanguage) {
-    store.__polyglotContext = buildContext(payload, labelLanguage)
-    store.__polyglotLabelLanguage = labelLanguage
+export function cachedContext(payload: AnyPayload, labelLanguage = 'nl'): PolyglotContext {
+  if (!payload.__polyglotContext || payload.__polyglotLabelLanguage !== labelLanguage) {
+    payload.__polyglotContext = buildContext(payload, labelLanguage)
+    payload.__polyglotLabelLanguage = labelLanguage
   }
-  return store.__polyglotContext as PolyglotContext
+  return payload.__polyglotContext as PolyglotContext
 }

@@ -1,7 +1,9 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { StringsOptions } from '../strings/global.js'
+import type { EntityKind } from '../types.js'
 
 type AnyReq = Record<string, any>
+type AnyData = Record<string, any>
 
 export type PolyglotOptions = {
   /**
@@ -46,6 +48,48 @@ export function documentId(value: string | number | undefined): string | number 
   return /^\d+$/.test(value) ? Number(value) : value
 }
 
+/** Read one document of a collection, or the document of a global. */
+export async function findDoc(
+  req: AnyReq,
+  kind: EntityKind,
+  slug: string,
+  id: string | number | undefined,
+  args: AnyData,
+): Promise<AnyData> {
+  return kind === 'global'
+    ? await req.payload.findGlobal({ slug, ...args })
+    : await req.payload.findByID({ collection: slug, id, ...args })
+}
+
+/** Write one document of a collection, or the document of a global. */
+export async function updateDoc(
+  req: AnyReq,
+  kind: EntityKind,
+  slug: string,
+  id: string | number | undefined,
+  args: AnyData,
+): Promise<AnyData> {
+  return kind === 'global'
+    ? await req.payload.updateGlobal({ slug, ...args })
+    : await req.payload.update({ collection: slug, id, ...args })
+}
+
+/**
+ * True when the newest version of a document holds changes that nobody
+ * published yet. With a status per locale, one locale in draft is enough.
+ *
+ * Payload builds an update from the newest version, so a write to the
+ * published document would carry those changes into the site: the same thing
+ * the Publish button of the admin panel does. Polyglot must never do that on
+ * its own.
+ */
+export function draftPending(latest: AnyData | undefined): boolean {
+  const status = latest?._status
+  return typeof status === 'string'
+    ? status === 'draft'
+    : Boolean(status && typeof status === 'object' && Object.values(status).includes('draft'))
+}
+
 export function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -75,15 +119,13 @@ export async function guard(
   write: boolean,
 ): Promise<Response | null> {
   const expected = options.secret ?? ''
-  if (expected !== '') {
-    const given = req.headers?.get?.('x-polyglot-secret') ?? ''
-    if (!secretsMatch(String(given), expected)) return json(403, { ok: false, code: 'forbidden', message: 'bad secret' })
+  if (expected !== '' && !secretsMatch(String(req.headers?.get?.('x-polyglot-secret') ?? ''), expected)) {
+    return json(403, { ok: false, code: 'forbidden', message: 'bad secret' })
   }
 
   // Reading the translation state lists every field, every path and a preview
   // of every value, so it asks for the same credential as writing.
-  const check = options.access ?? (({ req: r }) => Boolean(r.user))
-  if (!(await check({ req, write }))) {
+  if (!(options.access ? await options.access({ req, write }) : Boolean(req.user))) {
     return json(403, {
       ok: false,
       code: 'forbidden',

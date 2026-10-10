@@ -1,12 +1,11 @@
-import { cachedContext } from '../context.js'
+import { cachedContext, type PolyglotContext } from '../context.js'
 import { collectUnits } from '../flatten.js'
+import type { EntitySchema } from '../schema.js'
 import type { DocState, EntityKind, ReportDoc, ReportResponse } from '../types.js'
 import { guard, json, query, type PolyglotOptions } from './http.js'
 
 type AnyReq = Record<string, any>
 type AnyData = Record<string, any>
-
-const MAX_LIMIT = 100
 
 /** A readable name for a document, for the hub tables. */
 function titleOf(doc: AnyData, useAsTitle: string | undefined, defaultLocale: string): string {
@@ -26,7 +25,7 @@ function titleOf(doc: AnyData, useAsTitle: string | undefined, defaultLocale: st
 /**
  * `GET /api/polyglot/report`
  *
- * Query: `entity`, `kind`, `state`, `since`, `page`, `limit`.
+ * Query: `entity`, `kind`, `state`, `since`, `page`, `limit`, `trash`.
  *
  * Reads documents with `locale: 'all'` and `fallbackLocale: false`, so an empty
  * target locale stays empty instead of showing the source text.
@@ -43,12 +42,9 @@ export const reportHandler =
     const state = (params.get('state') ?? 'published') as DocState
     const since = params.get('since')
     const page = Math.max(1, Number(params.get('page') ?? 1) || 1)
-    const limit = Math.min(MAX_LIMIT, Math.max(1, Number(params.get('limit') ?? 50) || 50))
-    // Payload keeps a deleted document in the trash. The hub asks for those
-    // only when it wants to show them.
-    const trash = params.get('trash') === 'true'
+    const limit = Math.min(100, Math.max(1, Number(params.get('limit') ?? 50) || 50))
 
-    const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')
+    const context = cachedContext(req.payload, options.labelLanguage)
     const entity = context.entities.get(`${kind}:${slug}`)
     if (!entity) {
       return json(404, { ok: false, code: 'not_found', message: `unknown entity ${kind}:${slug}` })
@@ -57,7 +53,6 @@ export const reportHandler =
       return json(400, { ok: false, code: 'validation', message: `${slug} has no drafts` })
     }
 
-    const locales = context.locales
     const shared = {
       locale: 'all' as const,
       fallbackLocale: false,
@@ -77,49 +72,44 @@ export const reportHandler =
       // A global nobody has saved yet holds no row, so Payload gives it no id.
       // Its slug names it either way, and a caller that keys on the id must
       // get something it can key on.
-      docs.push(buildDoc({ ...doc, id: doc.id ?? slug }, entity, locales, context.defaultLocale))
+      docs.push(buildDoc({ ...doc, id: doc.id ?? slug }, entity, context))
     } else {
-      const where = since ? { updatedAt: { greater_than: since } } : undefined
       const result = (await req.payload.find({
         collection: slug,
         ...shared,
         limit,
         page,
         sort: 'id',
-        trash,
-        ...(where ? { where } : {}),
+        // Payload keeps a deleted document in the trash. The hub asks for those
+        // only when it wants to show them.
+        trash: params.get('trash') === 'true',
+        ...(since ? { where: { updatedAt: { greater_than: since } } } : {}),
       })) as AnyData
       totalDocs = Number(result.totalDocs ?? 0)
       totalPages = Number(result.totalPages ?? 1)
       for (const doc of (result.docs ?? []) as AnyData[]) {
-        docs.push(buildDoc(doc, entity, locales, context.defaultLocale))
+        docs.push(buildDoc(doc, entity, context))
       }
     }
 
-    const response: ReportResponse = {
+    return json(200, {
       entity: { kind, slug },
       state,
-      locales,
+      locales: context.locales,
       page,
       limit,
       totalDocs,
       totalPages,
       docs,
-    }
-    return json(200, response)
+    } satisfies ReportResponse)
   }
 
-function buildDoc(
-  doc: AnyData,
-  entity: { manifest: { useAsTitle?: string }; tree: Parameters<typeof collectUnits>[0] },
-  locales: string[],
-  defaultLocale: string,
-): ReportDoc {
+function buildDoc(doc: AnyData, entity: EntitySchema, context: PolyglotContext): ReportDoc {
   return {
     id: doc.id,
-    title: titleOf(doc, entity.manifest.useAsTitle, defaultLocale),
+    title: titleOf(doc, entity.manifest.useAsTitle, context.defaultLocale),
     updatedAt: String(doc.updatedAt ?? ''),
     status: (doc._status ?? null) as ReportDoc['status'],
-    units: collectUnits(entity.tree, doc, locales, defaultLocale),
+    units: collectUnits(entity.tree, doc, context.locales, context.defaultLocale),
   }
 }

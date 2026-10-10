@@ -64,29 +64,28 @@ export type StringsOptions = {
  */
 function fillFromCode(defaults: Record<string, string>) {
   return ({ doc, req }: { doc: AnyDoc; req: AnyDoc }): AnyDoc => {
-    const localization = req?.payload?.config?.localization
-    const defaultLocale: string | null = localization ? localization.defaultLocale : null
+    const defaultLocale: string | undefined = req?.payload?.config?.localization?.defaultLocale
     const stored = new Map<string, AnyDoc>()
     for (const item of (doc?.items ?? []) as AnyDoc[]) {
       if (item?.key) stored.set(item.key, item)
     }
 
-    const items = Object.entries(defaults).map(([key, text]) => {
-      const row = stored.get(key) ?? { id: rowId(key), key }
+    return {
+      ...doc,
+      items: Object.entries(defaults).map(([key, text]) => {
+        const row = stored.get(key) ?? { id: rowId(key), key }
 
-      // `locale: 'all'` gives an object of every language. Any other read
-      // gives the one language that was asked for.
-      if (req?.locale === 'all') {
-        const value = { ...(row.value as Record<string, unknown> | undefined) }
-        if (defaultLocale && !value[defaultLocale]) value[defaultLocale] = text
-        return { ...row, key, value }
-      }
+        // `locale: 'all'` gives an object of every language. Any other read
+        // gives the one language that was asked for.
+        if (req?.locale === 'all') {
+          const value = { ...(row.value as Record<string, unknown> | undefined) }
+          if (defaultLocale && !value[defaultLocale]) value[defaultLocale] = text
+          return { ...row, key, value }
+        }
 
-      const isDefault = !defaultLocale || req?.locale === defaultLocale
-      return { ...row, key, value: row.value || (isDefault ? text : null) }
-    })
-
-    return { ...doc, items }
+        return { ...row, key, value: row.value || (!defaultLocale || req?.locale === defaultLocale ? text : null) }
+      }),
+    }
   }
 }
 
@@ -143,10 +142,9 @@ export function stringsGlobal(options: StringsOptions = {}): GlobalConfig {
   if (options.hooks) global.hooks = options.hooks
 
   if (trees.length > 0) {
-    const defaults = flattenMessages(mergeMessages(...trees))
     global.hooks = {
       ...global.hooks,
-      afterRead: [...(global.hooks?.afterRead ?? []), fillFromCode(defaults) as never],
+      afterRead: [...(global.hooks?.afterRead ?? []), fillFromCode(flattenMessages(mergeMessages(...trees))) as never],
     }
   }
 

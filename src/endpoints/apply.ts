@@ -1,20 +1,28 @@
 import { cachedContext } from '../context.js'
-import { getByPath, MISSING, setByPath, templateOf, topLevelField } from '../flatten.js'
+import { templateOf, topLevelField } from '../flatten.js'
 import { isLexical } from '../lexical.js'
+import { getByPath, MISSING, setByPath } from '../path.js'
 import { evaluate } from '../status.js'
-import type { ApplyRequest, ApplyResponse, LeafKind } from '../types.js'
-import { body, documentId, guard, json, type PolyglotOptions } from './http.js'
+import type { ApplyRequest, ApplyResponse } from '../types.js'
+import {
+  body,
+  documentId,
+  draftPending,
+  findDoc,
+  guard,
+  json,
+  updateDoc,
+  type PolyglotOptions,
+} from './http.js'
 
 type AnyReq = Record<string, any>
 type AnyData = Record<string, any>
 
-const LOCK_COLLECTION = 'payload-locked-documents'
-
-/** True when another user holds the Payload editing lock on this document. */
+/** Who holds the Payload editing lock on this document, when it is not the caller. */
 async function lockedByOther(req: AnyReq, slug: string, id: unknown): Promise<string | null> {
   try {
-    const result = (await req.payload.find({
-      collection: LOCK_COLLECTION,
+    const lock = ((await req.payload.find({
+      collection: 'payload-locked-documents',
       depth: 0,
       limit: 1,
       pagination: false,
@@ -26,8 +34,7 @@ async function lockedByOther(req: AnyReq, slug: string, id: unknown): Promise<st
           { 'document.value': { equals: id } },
         ],
       },
-    })) as AnyData
-    const lock = (result.docs ?? [])[0] as AnyData | undefined
+    })) as AnyData).docs?.[0] as AnyData | undefined
     if (!lock) return null
     const owner = lock.user?.value ?? lock.user
     const ownerId = typeof owner === 'object' ? owner?.id : owner
@@ -48,8 +55,7 @@ async function lockedByOther(req: AnyReq, slug: string, id: unknown): Promise<st
  * template path the caller did not resolve.
  */
 function hashOf(value: unknown): string {
-  const kind: LeafKind = isLexical(value) ? 'richtext' : 'text'
-  return evaluate(kind, value, true).hash ?? ''
+  return evaluate(isLexical(value) ? 'richtext' : 'text', value, true).hash ?? ''
 }
 
 /**
@@ -76,7 +82,7 @@ export const applyHandler =
     const request = await body<ApplyRequest>(req)
     const kind = request?.entity?.kind ?? 'collection'
     const slug = request?.entity?.slug ?? ''
-    const context = cachedContext(req.payload, options.labelLanguage ?? 'nl')
+    const context = cachedContext(req.payload, options.labelLanguage)
     const entity = context.entities.get(`${kind}:${slug}`)
 
     if (!entity) {
@@ -86,22 +92,24 @@ export const applyHandler =
     if (!Array.isArray(request.ops) || (request.ops.length === 0 && !publishOnly)) {
       return json(400, { ok: false, code: 'validation', message: 'ops is empty' })
     }
-    if (!Array.isArray(request.ops)) request.ops = []
     if (!context.locales.includes(request.locale)) {
       return json(400, { ok: false, code: 'validation', message: `unknown locale ${request.locale}` })
     }
 
-    const derived = entity.manifest.leaves.filter((leaf) => leaf.role === 'derived').map((leaf) => leaf.path)
-    for (const op of request.ops) {
-      if (derived.includes(op.path.replace(/\[\d+\]/g, '[]'))) {
-        return json(400, {
-          ok: false,
-          code: 'validation',
-          message: `${op.path} is written by a project hook and cannot be set here`,
-        })
-      }
+    const derived = request.ops.find((op) =>
+      entity.manifest.leaves.some(
+        (leaf) => leaf.role === 'derived' && leaf.path === op.path.replace(/\[\d+\]/g, '[]'),
+      ),
+    )
+    if (derived) {
+      return json(400, {
+        ok: false,
+        code: 'validation',
+        message: `${derived.path} is written by a project hook and cannot be set here`,
+      })
     }
 
+    const id = documentId(request.id)
     const draft = request.state === 'draft'
     const transaction = await req.payload.db.beginTransaction?.()
     const scoped = transaction ? { ...req, transactionID: transaction } : req
@@ -121,34 +129,20 @@ export const applyHandler =
         user: req.user,
         req: scoped,
       }
-      const doc = (kind === 'global'
-        ? await req.payload.findGlobal({ slug, ...read })
-        : await req.payload.findByID({ collection: slug, id: documentId(request.id), ...read })) as AnyData
+      const doc = await findDoc(req, kind, slug, id, read)
 
-      /*
-       * A document with drafts may hold changes that nobody published yet.
-       * Payload builds an update from the newest version, so a write to the
-       * published document would carry those changes into the site: the same
-       * thing the Publish button of the admin panel does. A translation must
-       * never do that on its own.
-       */
-      if (!draft && entity.manifest.drafts) {
-        const latest = (kind === 'global'
-          ? await req.payload.findGlobal({ slug, ...read, draft: true })
-          : await req.payload.findByID({ collection: slug, id: documentId(request.id), ...read, draft: true })) as AnyData
-        const status = latest?._status
-        const pending =
-          typeof status === 'string'
-            ? status === 'draft'
-            : Boolean(status && typeof status === 'object' && Object.values(status).includes('draft'))
-        if (pending) {
-          return rollback(409, {
-            ok: false,
-            code: 'draft_pending',
-            message:
-              'This document holds changes that nobody published yet. Publishing or dropping them in Payload frees it, or translate its draft instead.',
-          })
-        }
+      // A translation must never publish changes that wait in a draft.
+      if (
+        !draft &&
+        entity.manifest.drafts &&
+        draftPending(await findDoc(req, kind, slug, id, { ...read, draft: true }))
+      ) {
+        return rollback(409, {
+          ok: false,
+          code: 'draft_pending',
+          message:
+            'This document holds changes that nobody published yet. Publishing or dropping them in Payload frees it, or translate its draft instead.',
+        })
       }
 
       const serverUpdatedAt = String(doc.updatedAt ?? '')
@@ -174,7 +168,7 @@ export const applyHandler =
       }
 
       if (kind === 'collection') {
-        const owner = await lockedByOther(scoped, slug, documentId(request.id))
+        const owner = await lockedByOther(scoped, slug, id)
         if (owner) {
           return rollback(423, {
             ok: false,
@@ -200,8 +194,8 @@ export const applyHandler =
         // uploads. Writing a plain string over it would throw all of that
         // away, so the shape has to match what is already there.
         const template = templateOf(doc, op.path)
-        const target = entity.manifest.leaves.find((leaf) => leaf.path === template)
-        const wantsRichText = target?.kind === 'richtext' || isLexical(current)
+        const wantsRichText =
+          entity.manifest.leaves.find((leaf) => leaf.path === template)?.kind === 'richtext' || isLexical(current)
         if (wantsRichText && typeof op.value === 'string') {
           return rollback(400, {
             ok: false,
@@ -229,7 +223,7 @@ export const applyHandler =
 
       if (publishOnly) data._status = 'published'
 
-      const write = {
+      const updated = await updateDoc(req, kind, slug, id, {
         locale: request.locale,
         data,
         draft,
@@ -239,10 +233,7 @@ export const applyHandler =
         context: { polyglot: true, disableRevalidate: request.revalidate === false },
         req: scoped,
         ...(request.publish === 'all' ? { publishAllLocales: true } : {}),
-      }
-      const updated = (kind === 'global'
-        ? await req.payload.updateGlobal({ slug, ...write })
-        : await req.payload.update({ collection: slug, id: documentId(request.id), ...write })) as AnyData
+      })
 
       if (transaction) await req.payload.db.commitTransaction(transaction)
 

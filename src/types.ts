@@ -78,7 +78,6 @@ export type LocaleDescriptor = {
 }
 
 export type Manifest = {
-  polyglotVersion: string
   payloadVersion: string
   localization: {
     locales: LocaleDescriptor[]

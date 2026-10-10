@@ -1,12 +1,10 @@
 import { componentUnits, getComponentValue } from './lexical.js'
-import { getByPath, MISSING, parsePath, setByPath } from './path.js'
+import { MISSING, parsePath } from './path.js'
+import { classifyRole, type SchemaNode } from './schema.js'
 import { evaluate } from './status.js'
-import type { SchemaNode } from './schema.js'
-import type { ComponentDescriptor, LeafKind, LeafRole, ReportUnit, UnitValue } from './types.js'
+import type { ComponentDescriptor, ReportUnit, UnitValue } from './types.js'
 
 type AnyData = Record<string, any>
-
-export { getByPath, MISSING, parsePath, setByPath }
 
 /**
  * The manifest name of a concrete path.
@@ -43,19 +41,8 @@ export function topLevelField(path: string): string {
 // Collecting report units
 // ---------------------------------------------------------------------------
 
-type Draft = {
-  path: string
-  template: string
-  kind: LeafKind
-  role: LeafRole
-  label: string
-  blockSlug?: string
-  componentSlug?: string
-  parentPath?: string
-  rowTitle?: string
-  localeScoped: boolean
-  values: Record<string, UnitValue>
-}
+/** A unit before its values are known. */
+type Draft = Omit<ReportUnit, 'values'>
 
 /**
  * The value that names a row. A field read with `locale: 'all'` arrives as a
@@ -69,17 +56,6 @@ function readTitle(value: unknown): string | undefined {
     }
   }
   return undefined
-}
-
-/**
- * `path` and `breadcrumbs` are written by the nested-docs plugin.
- * Polyglot reports them but never offers them for editing.
- */
-function roleOf(name: string, path: string): LeafRole {
-  if (name === 'path' || name === 'breadcrumbs' || path.startsWith('breadcrumbs')) return 'derived'
-  if (name === 'slug') return 'slug'
-  if (name.startsWith('seo') || path.startsWith('seo.') || path.startsWith('meta.')) return 'seo'
-  return 'content'
 }
 
 /**
@@ -98,13 +74,13 @@ export function collectUnits(
   sourceLocale?: string,
 ): ReportUnit[] {
   const source = sourceLocale ?? locales[0] ?? ''
-  const drafts = new Map<string, Draft>()
+  const units = new Map<string, ReportUnit>()
 
-  const record = (draft: Omit<Draft, 'values'>, locale: string, value: UnitValue): void => {
-    let existing = drafts.get(draft.path)
+  const record = (draft: Draft, locale: string, value: UnitValue): void => {
+    let existing = units.get(draft.path)
     if (!existing) {
       existing = { ...draft, values: {} }
-      drafts.set(draft.path, existing)
+      units.set(draft.path, existing)
     }
     existing.values[locale] = value
   }
@@ -125,14 +101,13 @@ export function collectUnits(
     for (const node of nodes) {
       if (node.nodeKind === 'leaf') {
         if (!node.localized || node.name === '_status' || node.name === 'id') continue
-        const leafPath = path + node.name
-        const leafTemplate = template + node.name
         const raw = object[node.name]
-        const draft: Omit<Draft, 'values'> = {
-          path: leafPath,
+        const leafTemplate = template + node.name
+        const draft: Draft = {
+          path: path + node.name,
           template: leafTemplate,
           kind: node.kind,
-          role: roleOf(node.name, leafTemplate),
+          role: classifyRole(node.name, leafTemplate),
           label: node.label,
           localeScoped: scoped,
         }
@@ -160,9 +135,8 @@ export function collectUnits(
         const nextPath = node.name ? `${path}${node.name}.` : path
         const nextTemplate = node.name ? `${template}${node.name}.` : template
         if (node.localeBoundary && localeCtx === null) {
-          const byLocale = (next ?? {}) as AnyData
           for (const locale of locales) {
-            visit(node.children, byLocale[locale], nextPath, nextTemplate, blockSlug, locale, true)
+            visit(node.children, next?.[locale], nextPath, nextTemplate, blockSlug, locale, true)
           }
         } else {
           visit(node.children, next, nextPath, nextTemplate, blockSlug, localeCtx, scoped, rowTitle)
@@ -181,8 +155,16 @@ export function collectUnits(
           if (node.nodeKind === 'array') {
             // The row is named by one of its own fields, so the reader sees the
             // key of a string rather than "Value" repeated down the list.
-            const title = node.titleField ? readTitle((item as AnyData)?.[node.titleField]) : undefined
-            visit(node.children, item, itemPath, `${template}${node.name}[].`, blockSlug, locale, nextScoped, title)
+            visit(
+              node.children,
+              item,
+              itemPath,
+              `${template}${node.name}[].`,
+              blockSlug,
+              locale,
+              nextScoped,
+              node.titleField ? readTitle((item as AnyData)?.[node.titleField]) : undefined,
+            )
           } else {
             const slug = String((item as AnyData)?.blockType ?? '')
             const block = node.blocks.find((b) => b.slug === slug)
@@ -196,8 +178,7 @@ export function collectUnits(
       }
 
       if (node.localeBoundary && localeCtx === null) {
-        const byLocale = (value ?? {}) as AnyData
-        for (const locale of locales) walkList(byLocale[locale], locale)
+        for (const locale of locales) walkList(value?.[locale], locale)
       } else {
         walkList(value, localeCtx)
       }
@@ -215,11 +196,13 @@ export function collectUnits(
     trees: AnyData,
     inLocales: string[],
     descriptors: ComponentDescriptor[],
-    parent: Omit<Draft, 'values'>,
+    parent: Draft,
   ): void {
-    const base = trees[source] ?? trees[inLocales.find((locale) => trees[locale]) ?? '']
-    for (const unit of componentUnits(base, descriptors)) {
-      const draft: Omit<Draft, 'values'> = {
+    for (const unit of componentUnits(
+      trees[source] ?? trees[inLocales.find((locale) => trees[locale]) ?? ''],
+      descriptors,
+    )) {
+      const draft: Draft = {
         path: parent.path + unit.suffix,
         template: `${parent.template}#${unit.template}`,
         kind: unit.kind,
@@ -237,17 +220,13 @@ export function collectUnits(
     }
   }
 
-  visit(tree, doc, '', '', undefined, null, false, undefined)
+  visit(tree, doc, '', '', undefined, null, false)
 
   // A path that one locale produced and another did not means the row is absent.
-  const units: ReportUnit[] = []
-  for (const draft of drafts.values()) {
-    for (const locale of locales) {
-      if (!draft.values[locale]) draft.values[locale] = { status: 'missing_row', len: 0 }
-    }
-    units.push(draft as ReportUnit)
+  for (const unit of units.values()) {
+    for (const locale of locales) unit.values[locale] ??= { status: 'missing_row', len: 0 }
   }
-  return units
+  return [...units.values()]
 }
 
 /** Collect the raw values of every localized leaf for one locale. */

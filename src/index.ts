@@ -36,25 +36,19 @@ export const polyglotPlugin =
     if (options.disabled) return incoming
 
     const base = options.path ?? '/polyglot'
-    const endpoints = [
-      { path: `${base}/manifest`, method: 'get' as const, handler: manifestHandler(options) },
-      { path: `${base}/report`, method: 'get' as const, handler: reportHandler(options) },
-      { path: `${base}/read`, method: 'get' as const, handler: readHandler(options) },
-      { path: `${base}/apply`, method: 'post' as const, handler: applyHandler(options) },
-      { path: `${base}/refresh`, method: 'post' as const, handler: refreshHandler(options) },
-    ]
-
-    const globals = options.strings
-      ? [
-          ...(incoming.globals ?? []),
-          stringsGlobal(options.strings === true ? {} : options.strings),
-        ]
-      : incoming.globals
-
     return {
       ...incoming,
-      globals,
-      endpoints: [...(incoming.endpoints ?? []), ...endpoints] as Config['endpoints'],
+      globals: options.strings
+        ? [...(incoming.globals ?? []), stringsGlobal(options.strings === true ? {} : options.strings)]
+        : incoming.globals,
+      endpoints: [
+        ...(incoming.endpoints ?? []),
+        { path: `${base}/manifest`, method: 'get', handler: manifestHandler(options) },
+        { path: `${base}/report`, method: 'get', handler: reportHandler(options) },
+        { path: `${base}/read`, method: 'get', handler: readHandler(options) },
+        { path: `${base}/apply`, method: 'post', handler: applyHandler(options) },
+        { path: `${base}/refresh`, method: 'post', handler: refreshHandler(options) },
+      ] as Config['endpoints'],
     }
   }
 

@@ -1,7 +1,6 @@
 import type {
   ComponentDescriptor,
   ContainerDescriptor,
-  EntityKind,
   EntityManifest,
   LeafDescriptor,
   LeafKind,
@@ -19,7 +18,7 @@ type AnyField = Record<string, any>
 /** A node of the walked field tree. The flattener uses the same tree. */
 export type SchemaNode = LeafNode | ObjectNode | ArrayNode | BlocksNode
 
-export type LeafNode = {
+type LeafNode = {
   nodeKind: 'leaf'
   name: string
   type: string
@@ -35,7 +34,7 @@ export type LeafNode = {
 }
 
 /** A group, a named tab, or a transparent wrapper (row, collapsible, unnamed tab). */
-export type ObjectNode = {
+type ObjectNode = {
   nodeKind: 'object'
   /** Absent for a transparent wrapper, which adds no path segment. */
   name?: string
@@ -45,7 +44,7 @@ export type ObjectNode = {
   children: SchemaNode[]
 }
 
-export type ArrayNode = {
+type ArrayNode = {
   nodeKind: 'array'
   name: string
   label: string
@@ -58,29 +57,28 @@ export type ArrayNode = {
   titleField?: string
 }
 
-/**
- * Names that identify a row rather than describe it, best first. A field that
- * is not translated is preferred: a key stays the same in every language.
- */
-const ROW_TITLE_NAMES = ['key', 'name', 'slug', 'label', 'title', 'heading', 'question']
-
-function findTitleField(children: SchemaNode[]): string | undefined {
-  const leaves = children.filter((node): node is LeafNode => node.nodeKind === 'leaf' && node.type === 'text')
-  for (const preferLiteral of [true, false]) {
-    for (const candidate of ROW_TITLE_NAMES) {
-      const found = leaves.find((leaf) => leaf.name === candidate && leaf.localized !== preferLiteral)
-      if (found) return found.name
-    }
-  }
-  return undefined
-}
-
-export type BlocksNode = {
+type BlocksNode = {
   nodeKind: 'blocks'
   name: string
   label: string
   localeBoundary: boolean
   blocks: { slug: string; label: string; children: SchemaNode[] }[]
+}
+
+/**
+ * The child that names a row. The candidates identify a row rather than
+ * describe it, best first. A field that is not translated is preferred: a key
+ * stays the same in every language.
+ */
+function findTitleField(children: SchemaNode[]): string | undefined {
+  const leaves = children.filter((node): node is LeafNode => node.nodeKind === 'leaf' && node.type === 'text')
+  for (const preferLiteral of [true, false]) {
+    for (const candidate of ['key', 'name', 'slug', 'label', 'title', 'heading', 'question']) {
+      const found = leaves.find((leaf) => leaf.name === candidate && leaf.localized !== preferLiteral)
+      if (found) return found.name
+    }
+  }
+  return undefined
 }
 
 /**
@@ -94,53 +92,13 @@ export type BlocksNode = {
  *
  * The lexical adapter keeps them under the `blocks` feature. `blocks` holds
  * the block-level ones and `inlineBlocks` the ones that sit inside a sentence.
- *
- * Payload calls an address, an anchor and a caption all three `text`, and it
- * drops `localized` from the fields inside a block, so the config cannot say
- * which of them holds words. The names below are the ones that never do. A
- * field this list does not name is offered for translation, so a component a
- * project writes tomorrow is covered without a change here.
- */
-const NOT_WORDS = new Set([
-  'url',
-  'href',
-  'src',
-  'link',
-  'anchor',
-  'hash',
-  'slug',
-  'key',
-  'icon',
-  'target',
-  'rel',
-  'class',
-  'className',
-  'style',
-  'color',
-  'colour',
-  'size',
-  'width',
-  'height',
-  'align',
-  'variant',
-  'theme',
-  'blockName',
-])
-
-/**
- * Read the components of one rich text editor out of the Payload config.
  */
 function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
   const feature = field.editor?.editorConfig?.resolvedFeatureMap?.get?.('blocks')
   const props = feature?.sanitizedServerFeatureProps ?? feature?.sanitizedClientFeatureProps ?? {}
-  const defs = [...(props.blocks ?? []), ...(props.inlineBlocks ?? [])] as AnyField[]
-
-  const out: ComponentDescriptor[] = []
-  for (const block of defs) {
-    const described = describeComponent(block, lang)
-    if (described) out.push(described)
-  }
-  return out
+  return ([...(props.blocks ?? []), ...(props.inlineBlocks ?? [])] as AnyField[])
+    .map((block) => describeComponent(block, lang))
+    .filter((component): component is ComponentDescriptor => component !== undefined)
 }
 
 /**
@@ -149,14 +107,27 @@ function readComponents(field: AnyField, lang: string): ComponentDescriptor[] {
  * The same walker reads this as reads a collection, so a group, an array, a
  * tab, a row and a nested blocks field inside a component are all followed.
  * Returns nothing when the component holds no words at all.
+ *
+ * Payload calls an address, an anchor and a caption all three `text`, and it
+ * drops `localized` from the fields inside a block, so the config cannot say
+ * which of them holds words. The names left out below are the ones that never
+ * do. A field that list does not name is offered for translation, so a
+ * component a project writes tomorrow is covered without a change here.
  */
 export function describeComponent(block: AnyField, lang = 'nl'): ComponentDescriptor | undefined {
   if (!block || typeof block !== 'object') return undefined
   // Everything inside a lexical tree belongs to the locale of that tree, so
   // the walk treats every field as localized.
-  const { leaves } = describeTree(walkFields(block.fields, lang, true))
-  const fields = leaves
-    .filter((leaf) => leaf.translatable && !NOT_WORDS.has(leaf.name))
+  const fields = describeTree(walkFields(block.fields, lang, true))
+    .leaves.filter(
+      (leaf) =>
+        leaf.translatable &&
+        ![
+          'url', 'href', 'src', 'link', 'anchor', 'hash', 'slug', 'key', 'icon', 'target', 'rel', 'class',
+          'className', 'style', 'color', 'colour', 'size', 'width', 'height', 'align', 'variant', 'theme',
+          'blockName',
+        ].includes(leaf.name),
+    )
     .map((leaf) => ({ path: leaf.path, label: leaf.label, kind: leaf.kind }))
   if (fields.length === 0) return undefined
   return {
@@ -165,14 +136,6 @@ export function describeComponent(block: AnyField, lang = 'nl'): ComponentDescri
     fields,
   }
 }
-
-const TRANSLATABLE_TYPES = new Set(['text', 'textarea', 'richText'])
-const RELATION_TYPES = new Set(['relationship', 'upload', 'join'])
-const CHOICE_TYPES = new Set(['select', 'radio'])
-const TRANSPARENT_TYPES = new Set(['row', 'collapsible'])
-
-/** Field types that hold no data and never appear in a document. */
-const NON_DATA_TYPES = new Set(['ui'])
 
 function humanize(name: string): string {
   return name
@@ -197,12 +160,11 @@ export function readLabel(label: unknown, fallbackName: string, lang = 'nl'): st
   return humanize(fallbackName)
 }
 
-function classifyLeaf(field: AnyField): { kind: LeafKind; translatable: boolean } {
-  const type = String(field.type)
+function classifyLeaf(type: string): { kind: LeafKind; translatable: boolean } {
   if (type === 'richText') return { kind: 'richtext', translatable: true }
-  if (TRANSLATABLE_TYPES.has(type)) return { kind: 'text', translatable: true }
-  if (RELATION_TYPES.has(type)) return { kind: 'relation', translatable: false }
-  if (CHOICE_TYPES.has(type)) return { kind: 'select', translatable: false }
+  if (type === 'text' || type === 'textarea') return { kind: 'text', translatable: true }
+  if (['relationship', 'upload', 'join'].includes(type)) return { kind: 'relation', translatable: false }
+  if (type === 'select' || type === 'radio') return { kind: 'select', translatable: false }
   return { kind: 'other', translatable: false }
 }
 
@@ -210,7 +172,7 @@ function classifyLeaf(field: AnyField): { kind: LeafKind; translatable: boolean 
  * `path` and `breadcrumbs` are written by the nested-docs plugin.
  * Polyglot reports them but never writes them: a hook owns the value.
  */
-function classifyRole(name: string, path: string): LeafRole {
+export function classifyRole(name: string, path: string): LeafRole {
   if (name === 'path' || name === 'breadcrumbs' || path.startsWith('breadcrumbs')) return 'derived'
   if (name === 'slug') return 'slug'
   if (name.startsWith('seo') || path.startsWith('meta.') || path.startsWith('seo.')) return 'seo'
@@ -230,9 +192,10 @@ export function walkFields(
   const nodes: SchemaNode[] = []
   for (const field of fields ?? []) {
     const type = String(field?.type ?? '')
-    if (!type || NON_DATA_TYPES.has(type)) continue
+    // A `ui` field holds no data and never appears in a document.
+    if (!type || type === 'ui') continue
 
-    if (TRANSPARENT_TYPES.has(type)) {
+    if (type === 'row' || type === 'collapsible') {
       nodes.push({
         nodeKind: 'object',
         label: readLabel(field.label, type, lang),
@@ -290,14 +253,13 @@ export function walkFields(
     }
 
     if (type === 'blocks') {
-      // Payload 3.6+ allows `blockReferences` next to `blocks`.
-      const defs = [...(field.blocks ?? []), ...(field.blockReferences ?? [])] as AnyField[]
       nodes.push({
         nodeKind: 'blocks',
         name,
         label: readLabel(field.label, name, lang),
         localeBoundary: localized,
-        blocks: defs
+        // Payload 3.6+ allows `blockReferences` next to `blocks`.
+        blocks: ([...(field.blocks ?? []), ...(field.blockReferences ?? [])] as AnyField[])
           .filter((b) => b && typeof b === 'object')
           .map((b) => ({
             slug: String(b.slug),
@@ -308,7 +270,7 @@ export function walkFields(
       continue
     }
 
-    const { kind, translatable } = classifyLeaf(field)
+    const { kind, translatable } = classifyLeaf(type)
     const components = type === 'richText' ? readComponents(field, lang) : []
     nodes.push({
       nodeKind: 'leaf',
@@ -368,8 +330,7 @@ export function describeTree(nodes: SchemaNode[]): {
       const scoped = localeScoped || node.localeBoundary
 
       if (node.nodeKind === 'object') {
-        const next = node.name ? `${prefix}${node.name}.` : prefix
-        visit(node.children, next, blockSlug, scoped)
+        visit(node.children, node.name ? `${prefix}${node.name}.` : prefix, blockSlug, scoped)
         continue
       }
 
@@ -401,22 +362,6 @@ export function describeTree(nodes: SchemaNode[]): {
   return { leaves, containers }
 }
 
-/** True when the tree holds at least one localized leaf. */
-export function hasLocalizedLeaf(nodes: SchemaNode[]): boolean {
-  for (const node of nodes) {
-    if (node.nodeKind === 'leaf') {
-      if (node.localized) return true
-    } else if (node.nodeKind === 'blocks') {
-      if (node.localeBoundary) return true
-      if (node.blocks.some((b) => hasLocalizedLeaf(b.children))) return true
-    } else {
-      if (node.localeBoundary) return true
-      if (hasLocalizedLeaf(node.children)) return true
-    }
-  }
-  return false
-}
-
 /**
  * Where Payload keeps the publication status.
  *
@@ -432,8 +377,6 @@ export function resolveStatusScope(fields: AnyField[] | undefined): StatusScope 
 }
 
 export type EntitySchema = {
-  kind: EntityKind
-  slug: string
   tree: SchemaNode[]
   manifest: EntityManifest
 }

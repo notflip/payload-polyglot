@@ -6,8 +6,6 @@
  * reader can use it without importing each other.
  */
 
-type AnyData = Record<string, any>
-
 export const MISSING = Symbol('missing')
 
 export function parsePath(path: string): (string | number)[] {
@@ -28,28 +26,28 @@ export function getByPath(data: unknown, path: string): unknown | typeof MISSING
   let current: any = data
   for (const part of parsePath(path)) {
     if (current === null || current === undefined) return MISSING
-    if (typeof part === 'number') {
-      if (!Array.isArray(current) || part >= current.length) return MISSING
-      current = current[part]
-    } else {
-      if (typeof current !== 'object' || !(part in current)) return MISSING
-      current = current[part]
+    if (
+      typeof part === 'number'
+        ? !Array.isArray(current) || part >= current.length
+        : typeof current !== 'object' || !(part in current)
+    ) {
+      return MISSING
     }
+    current = current[part]
   }
   return current
 }
 
-export function setByPath(data: AnyData, path: string, value: unknown): boolean {
+export function setByPath(data: Record<string, any>, path: string, value: unknown): boolean {
   const parts = parsePath(path)
+  const last = parts.pop()
   let current: any = data
-  for (let i = 0; i < parts.length - 1; i++) {
-    const part = parts[i]!
+  for (const part of parts) {
     if (current === null || current === undefined) return false
-    current = typeof part === 'number' ? current?.[part] : current?.[part]
+    current = current[part]
   }
-  const last = parts[parts.length - 1]
   if (last === undefined || current === null || typeof current !== 'object') return false
-  current[last as any] = value
+  current[last] = value
   return true
 }
 

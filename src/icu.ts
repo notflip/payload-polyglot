@@ -78,10 +78,9 @@ export function tagsOf(message: string): { names: string[]; balanced: boolean } 
   let balanced = true
 
   for (const match of message.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9_-]*)\s*>/g)) {
-    const closing = match[1] === '/'
     const name = match[2]!
     names.add(name)
-    if (closing) {
+    if (match[1] === '/') {
       if (stack.pop() !== name) balanced = false
     } else {
       stack.push(name)

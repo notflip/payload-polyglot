@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { extractPlainText, extractSegments, hasMediaNodes, isLexical } from './lexical.js'
+import { extractPlainText, hasMediaNodes, isLexical } from './lexical.js'
 import type { LeafKind, UnitStatus, UnitValue } from './types.js'
 
 /**
@@ -22,10 +22,11 @@ export function sha256(text: string): string {
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
-  const entries = Object.entries(value as Record<string, unknown>)
+  return `{${Object.entries(value as Record<string, unknown>)
     .filter(([key]) => key !== 'direction' && key !== 'version')
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`)
+    .join(',')}}`
 }
 
 /**
@@ -34,13 +35,13 @@ function stableStringify(value: unknown): string {
  */
 export function structureHash(value: unknown): string | undefined {
   if (!isLexical(value)) return undefined
-  const stripped = structuredClone(value) as Record<string, any>
+  const stripped = structuredClone(value)
   const strip = (node: Record<string, any> | undefined): void => {
     if (!node || typeof node !== 'object') return
     if (node.type === 'text') node.text = ''
     for (const child of node.children ?? []) strip(child)
     for (const field of Object.values(node.fields ?? {})) {
-      if (isLexical(field)) strip((field as { root: Record<string, any> }).root)
+      if (isLexical(field)) strip(field.root)
     }
   }
   strip(stripped.root)
@@ -66,22 +67,10 @@ export function evaluate(kind: LeafKind, value: unknown, rowPresent: boolean): U
   if (!rowPresent) return { status: 'missing_row', len: 0 }
   if (value === null || value === undefined) return { status: 'missing_null', len: 0 }
 
-  if (kind === 'richtext') {
-    const segments = extractSegments(value)
-    const text = normalize(segments.map((s) => s.text).join(' '))
-    if (text === '') {
-      return { status: hasMediaNodes(value) ? 'empty_media_only' : 'missing_empty', len: 0 }
-    }
-    return {
-      status: 'ok',
-      hash: sha256(text),
-      len: text.length,
-      preview: text.slice(0, 160),
-    }
-  }
-
   const text = normalize(readText(kind, value))
-  if (text === '') return { status: 'missing_empty', len: 0 }
+  if (text === '') {
+    return { status: kind === 'richtext' && hasMediaNodes(value) ? 'empty_media_only' : 'missing_empty', len: 0 }
+  }
   return {
     status: 'ok',
     hash: sha256(text),

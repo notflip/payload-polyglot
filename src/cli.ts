@@ -37,8 +37,6 @@ const url = (flag('url') ?? process.env.POLYGLOT_URL ?? process.env.NEXT_PUBLIC_
   .trim()
   .replace(/\/$/, '')
 const locales = list(flag('locales'))
-const dirs = list(flag('dirs') ?? 'messages')
-const slug = flag('slug') ?? 'translations'
 const key = flag('key') ?? process.env.POLYGLOT_API_KEY
 const dryRun = process.argv.includes('--dry')
 
@@ -55,7 +53,7 @@ if (!url || locales.length === 0) {
  * someone had translated it.
  */
 async function read(locale: string): Promise<StringItem[]> {
-  const address = `${url}/api/globals/${slug}?locale=${locale}&depth=0&fallback-locale=null`
+  const address = `${url}/api/globals/${flag('slug') ?? 'translations'}?locale=${locale}&depth=0&fallback-locale=null`
   const response = await fetch(address, {
     headers: key ? { Authorization: `users API-Key ${key}` } : {},
   })
@@ -64,11 +62,10 @@ async function read(locale: string): Promise<StringItem[]> {
     throw new Error(`${address} answered ${response.status}`)
   }
 
-  const body = (await response.json()) as { items?: StringItem[] | null }
-  return body.items ?? []
+  return ((await response.json()) as { items?: StringItem[] | null }).items ?? []
 }
 
-const result = await pullStrings({ read, locales, dirs, dryRun })
+const result = await pullStrings({ read, locales, dirs: list(flag('dirs') ?? 'messages'), dryRun })
 
 for (const change of result.changes) {
   console.log(`${change.file}  ${change.key}`)
