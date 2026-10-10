@@ -86,6 +86,22 @@ test('finds every localized leaf and skips the rest', () => {
   ])
 })
 
+test('names the sections and rows above each field, as Payload shows them', () => {
+  const trails = Object.fromEntries(describeTree(tree).leaves.map((l) => [l.path, l.trail]))
+  assert.equal(trails.title, undefined)
+  assert.deepEqual(trails['seo.title'], [{ kind: 'section', label: 'SEO' }])
+  // A row draws no heading in Payload, so it adds no step.
+  assert.deepEqual(trails['blocks[faq].subtitle'], [
+    { kind: 'section', label: 'Inhoud' },
+    { kind: 'row', label: 'Veelgestelde vragen' },
+  ])
+  assert.deepEqual(trails['blocks[faq].items[].title'], [
+    { kind: 'section', label: 'Inhoud' },
+    { kind: 'row', label: 'Veelgestelde vragen' },
+    { kind: 'row', label: 'Vragen' },
+  ])
+})
+
 test('classifies kind, role and translatability', () => {
   const { leaves } = describeTree(tree)
   const by = Object.fromEntries(leaves.map((l) => [l.path, l]))

@@ -24,6 +24,19 @@ export type LeafRole = 'content' | 'seo' | 'slug' | 'derived'
 // Manifest
 // ---------------------------------------------------------------------------
 
+/**
+ * One step on the way from the document to a field, as the Payload admin panel
+ * shows it. The hub turns these steps into the headings of a document.
+ */
+export type TrailStep =
+  /** A group, a tab or a collapsible: a heading of its own in Payload. */
+  | { kind: 'section'; label: string }
+  /**
+   * One row of an array or a blocks field. The label is the block type, or the
+   * singular name of an array row. The concrete path gives the position.
+   */
+  | { kind: 'row'; label: string }
+
 export type LeafDescriptor = {
   /** Dotted path with array indices removed, e.g. `blocks[].items[].title`. */
   path: string
@@ -38,6 +51,8 @@ export type LeafDescriptor = {
   blockSlug?: string
   /** Rich text only: the custom components this editor allows. */
   components?: ComponentDescriptor[]
+  /** The sections and rows above this field. Absent for a field at the top. */
+  trail?: TrailStep[]
 }
 
 export type ContainerDescriptor = {

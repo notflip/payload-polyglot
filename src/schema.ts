@@ -6,6 +6,7 @@ import type {
   LeafKind,
   LeafRole,
   StatusScope,
+  TrailStep,
 } from './types.js'
 
 /**
@@ -38,6 +39,7 @@ type ObjectNode = {
   nodeKind: 'object'
   /** Absent for a transparent wrapper, which adds no path segment. */
   name?: string
+  /** Empty for a row, which Payload draws without a heading. */
   label: string
   /** The container carries `localized: true`: the whole subtree is per locale. */
   localeBoundary: boolean
@@ -48,6 +50,8 @@ type ArrayNode = {
   nodeKind: 'array'
   name: string
   label: string
+  /** What Payload calls one row, such as `Item`. */
+  rowLabel: string
   localeBoundary: boolean
   children: SchemaNode[]
   /**
@@ -198,7 +202,7 @@ export function walkFields(
     if (type === 'row' || type === 'collapsible') {
       nodes.push({
         nodeKind: 'object',
-        label: readLabel(field.label, type, lang),
+        label: type === 'row' ? '' : readLabel(field.label, type, lang),
         localeBoundary: false,
         children: walkFields(field.fields, lang, inheritedLocalized),
       })
@@ -243,6 +247,7 @@ export function walkFields(
         nodeKind: 'array',
         name,
         label: readLabel(field.label, name, lang),
+        rowLabel: readLabel(field.labels?.singular ?? field.label, name, lang),
         localeBoundary: localized,
         children,
       }
@@ -301,6 +306,7 @@ export function describeTree(nodes: SchemaNode[]): {
     prefix: string,
     blockSlug: string | undefined,
     localeScoped: boolean,
+    trail: TrailStep[],
   ) => {
     for (const node of list) {
       if (node.nodeKind === 'leaf') {
@@ -323,6 +329,7 @@ export function describeTree(nodes: SchemaNode[]): {
         }
         if (blockSlug) descriptor.blockSlug = blockSlug
         if (node.components) descriptor.components = node.components
+        if (trail.length > 0) descriptor.trail = trail
         leaves.push(descriptor)
         continue
       }
@@ -330,16 +337,25 @@ export function describeTree(nodes: SchemaNode[]): {
       const scoped = localeScoped || node.localeBoundary
 
       if (node.nodeKind === 'object') {
-        visit(node.children, node.name ? `${prefix}${node.name}.` : prefix, blockSlug, scoped)
+        visit(
+          node.children,
+          node.name ? `${prefix}${node.name}.` : prefix,
+          blockSlug,
+          scoped,
+          node.label ? [...trail, { kind: 'section', label: node.label }] : trail,
+        )
         continue
       }
 
       const before = leaves.length
       if (node.nodeKind === 'array') {
-        visit(node.children, `${prefix}${node.name}[].`, blockSlug, scoped)
+        visit(node.children, `${prefix}${node.name}[].`, blockSlug, scoped, [...trail, { kind: 'row', label: node.rowLabel }])
       } else {
         for (const block of node.blocks) {
-          visit(block.children, `${prefix}${node.name}[${block.slug}].`, block.slug, scoped)
+          visit(block.children, `${prefix}${node.name}[${block.slug}].`, block.slug, scoped, [
+            ...trail,
+            { kind: 'row', label: block.label },
+          ])
         }
       }
       if (leaves.length > before) {
@@ -358,7 +374,7 @@ export function describeTree(nodes: SchemaNode[]): {
     }
   }
 
-  visit(nodes, '', undefined, false)
+  visit(nodes, '', undefined, false, [])
   return { leaves, containers }
 }
 
