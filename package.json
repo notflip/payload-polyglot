@@ -1,6 +1,6 @@
 {
   "name": "@studiomonty/payload-polyglot",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Exposes the translation state of a Payload project over HTTP, and applies translations with the Local API.",
   "license": "MIT",
   "type": "module",
@@ -52,12 +52,11 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.js",
-    "prepare": "tsc -p tsconfig.build.json || true",
-    "prepublishOnly": "tsc -p tsconfig.build.json && node --test test/*.test.js"
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepare": "tsc || true",
+    "prepublishOnly": "tsc"
   },
   "peerDependencies": {
     "payload": ">=3.39.0"

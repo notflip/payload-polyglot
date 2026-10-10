@@ -26,8 +26,6 @@ export const FORMAT_TAGS: [number, string][] = [
   [128, 'mark'],
 ]
 
-const TAG_BY_NAME = new Map(FORMAT_TAGS.map(([bit, tag]) => [tag, bit]))
-
 export function isLexical(value: unknown): value is LexicalRoot {
   return Boolean(value) && typeof value === 'object' && 'root' in (value as object)
 }
@@ -266,10 +264,6 @@ function escapeText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-function unescapeText(text: string): string {
-  return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-}
-
 /** Render one unit as a tagged string. */
 export function renderTagged(segments: TextSegment[]): string {
   let out = ''
@@ -318,85 +312,6 @@ export function renderTagged(segments: TextSegment[]): string {
   return out
 }
 
-export type TaggedRun = { text: string; format: number; linkIndex?: number; atomicIndex?: number }
-
-/** Parse a tagged string back into runs of text with a format mask and a link index. */
-export function parseTagged(tagged: string): TaggedRun[] {
-  const runs: TaggedRun[] = []
-  const formatStack: number[] = []
-  let linkIndex: number | undefined
-  let buffer = ''
-  let i = 0
-
-  const flush = () => {
-    if (buffer === '') return
-    const run: TaggedRun = { text: unescapeText(buffer), format: formatStack.reduce((acc, bit) => acc | bit, 0) }
-    if (linkIndex !== undefined) run.linkIndex = linkIndex
-    runs.push(run)
-    buffer = ''
-  }
-
-  while (i < tagged.length) {
-    if (tagged[i] !== '<') {
-      buffer += tagged[i]
-      i++
-      continue
-    }
-    const close = tagged.indexOf('>', i)
-    if (close === -1) {
-      buffer += tagged.slice(i)
-      break
-    }
-    const raw = tagged.slice(i + 1, close)
-    i = close + 1
-
-    if (raw.startsWith('/')) {
-      flush()
-      const name = raw.slice(1)
-      if (name === 'a') linkIndex = undefined
-      else {
-        const bit = TAG_BY_NAME.get(name)
-        if (bit !== undefined) {
-          const at = formatStack.lastIndexOf(bit)
-          if (at !== -1) formatStack.splice(at, 1)
-        }
-      }
-      continue
-    }
-
-    const atomicMatch = /^x\s+k="(\d+)"\s*\/?$/.exec(raw)
-    if (atomicMatch) {
-      flush()
-      runs.push({ text: '', format: 0, atomicIndex: Number(atomicMatch[1]) })
-      continue
-    }
-
-    const linkMatch = /^a\s+k="(\d+)"$/.exec(raw)
-    if (linkMatch) {
-      flush()
-      linkIndex = Number(linkMatch[1])
-      continue
-    }
-
-    const bit = TAG_BY_NAME.get(raw)
-    if (bit !== undefined) {
-      flush()
-      formatStack.push(bit)
-      continue
-    }
-
-    // An unknown tag is treated as literal text rather than dropped.
-    buffer += `<${raw}>`
-  }
-
-  flush()
-  return runs
-}
-
-// ---------------------------------------------------------------------------
-// Writing
-// ---------------------------------------------------------------------------
-
 function getByAddr(doc: LexicalRoot, addr: string): AnyNode | undefined {
   let node: AnyNode | undefined = doc.root
   for (const part of addr.split('/')) {
@@ -409,169 +324,6 @@ function getByAddr(doc: LexicalRoot, addr: string): AnyNode | undefined {
     node = node.children?.[Number(part)]
   }
   return node
-}
-
-export class TagMismatchError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'TagMismatchError'
-  }
-}
-
-/**
- * Write one translated unit back into a copy of the source document.
- *
- * Only `children` of the block-level node is rebuilt. The node itself keeps its
- * type, its heading tag, its list type, its indent and its version. Link nodes
- * are restored by index with their `url`, `doc` and `newTab` fields intact.
- *
- * Throws `TagMismatchError` when the translation does not use the same link
- * indices as the source. The caller then falls back to per-node translation.
- */
-export function applyUnit(doc: LexicalRoot, unit: string, tagged: string, source: TextSegment[]): void {
-  const runs = parseTagged(tagged)
-  const parent = getByAddr(doc, unit)
-  if (!parent) throw new TagMismatchError(`unit ${unit} not found`)
-
-  // The translation must use the same marks as the source, each one by index.
-  const sameMarks = (pick: (item: { linkIndex?: number; atomicIndex?: number }) => number | undefined): boolean => {
-    const want = new Set(source.map(pick).filter((k) => k !== undefined))
-    const got = new Set(runs.map(pick).filter((k) => k !== undefined))
-    return want.size === got.size && [...got].every((k) => want.has(k))
-  }
-  if (!sameMarks((item) => item.linkIndex)) {
-    throw new TagMismatchError(`unit ${unit}: link indices do not match the source`)
-  }
-  if (!sameMarks((item) => item.atomicIndex)) {
-    throw new TagMismatchError(`unit ${unit}: the line breaks or components do not match the source`)
-  }
-
-  // Keep the original link and line break nodes, so their fields and their
-  // exact node shape survive the translation.
-  const linkNodes = new Map<number, AnyNode>()
-  const atomicNodes = new Map<number, AnyNode>()
-  let linkSeen = 0
-  let atomicSeen = 0
-  const collect = (node: AnyNode | undefined, top: boolean) => {
-    if (!node || typeof node !== 'object') return
-    const type = String(node.type ?? '')
-    if (ATOMIC_NODES.has(type)) {
-      atomicNodes.set(atomicSeen++, node)
-      return
-    }
-    if (type === 'link' || type === 'autolink') {
-      linkNodes.set(linkSeen++, node)
-      return
-    }
-    // The same rule as the reader: an inline object is kept whole.
-    if (!top && type !== 'text' && (node.children ?? []).length === 0) {
-      atomicNodes.set(atomicSeen++, node)
-      return
-    }
-    for (const child of node.children ?? []) collect(child, false)
-  }
-  collect(parent, true)
-
-  // A donor text node, so style, mode, detail and version survive.
-  const donor = findFirstTextNode(parent) ?? { type: 'text', style: '', mode: 'normal', detail: 0, version: 1 }
-  const makeText = (run: TaggedRun): AnyNode => ({
-    type: 'text',
-    text: run.text,
-    format: run.format,
-    style: donor.style ?? '',
-    mode: donor.mode ?? 'normal',
-    detail: donor.detail ?? 0,
-    version: donor.version ?? 1,
-  })
-
-  const children: AnyNode[] = []
-  let index = 0
-  while (index < runs.length) {
-    const run = runs[index]!
-    if (run.atomicIndex !== undefined) {
-      children.push(atomicNodes.get(run.atomicIndex) ?? { type: 'linebreak', version: 1 })
-      index++
-      continue
-    }
-    if (run.linkIndex === undefined) {
-      if (run.text !== '') children.push(makeText(run))
-      index++
-      continue
-    }
-    const key = run.linkIndex
-    const inside: AnyNode[] = []
-    while (index < runs.length && runs[index]!.linkIndex === key) {
-      inside.push(makeText(runs[index]!))
-      index++
-    }
-    const original = linkNodes.get(key)
-    children.push(original ? { ...original, children: inside } : { type: 'link', children: inside, version: 1 })
-  }
-
-  parent.children = children
-  // Let lexical recompute the direction, so a right-to-left target renders.
-  // Only when the node carries the key, so nothing new is added to the tree.
-  if ('direction' in parent) parent.direction = null
-}
-
-function findFirstTextNode(node: AnyNode | undefined): AnyNode | undefined {
-  if (!node || typeof node !== 'object') return undefined
-  if (String(node.type ?? '') === 'text') return node
-  for (const child of node.children ?? []) {
-    const found = findFirstTextNode(child)
-    if (found) return found
-  }
-  return undefined
-}
-
-/**
- * Replace the text of each segment one by one, changing nothing else.
- * This is the fallback when the tagged form comes back malformed.
- */
-export function applySegments(doc: LexicalRoot, replacements: Map<string, string>): void {
-  const walk = (node: AnyNode | undefined, addr: string): void => {
-    if (!node || typeof node !== 'object') return
-    const type = String(node.type ?? '')
-    if (ATOMIC_NODES.has(type)) return
-    if (type === 'text') {
-      const next = replacements.get(addr)
-      if (next !== undefined) node.text = next
-      return
-    }
-    if (node.fields) {
-      for (const [key, value] of Object.entries(node.fields)) {
-        if (isLexical(value)) walk(value.root, `${addr}/fields.${key}`)
-      }
-    }
-    for (const [i, child] of (node.children ?? []).entries()) walk(child, `${addr}/${i}`)
-  }
-  for (const [i, child] of (doc.root.children ?? []).entries()) walk(child, String(i))
-}
-
-/**
- * Check that a rebuilt document still matches the source structure.
- * A write that fails this check must be dropped, not sent.
- */
-export function assertRoundTrip(source: unknown, rebuilt: unknown): void {
-  const before = toUnits(source)
-  const after = toUnits(rebuilt)
-  if (before.length !== after.length) {
-    throw new TagMismatchError(`unit count changed: ${before.length} -> ${after.length}`)
-  }
-  for (const [i, unit] of before.entries()) {
-    const other = after[i]!
-    if (unit.unit !== other.unit) {
-      throw new TagMismatchError(`unit address changed: ${unit.unit} -> ${other.unit}`)
-    }
-    const marks = (list: TextSegment[]) =>
-      [
-        ...new Set(list.filter((s) => s.linkIndex !== undefined).map((s) => `a${s.linkIndex}`)),
-        ...new Set(list.filter((s) => s.atomicIndex !== undefined).map((s) => `x${s.atomicIndex}`)),
-      ].sort()
-    if (marks(unit.segments).join(',') !== marks(other.segments).join(',')) {
-      throw new TagMismatchError(`unit ${unit.unit}: a link, a line break or a component was lost`)
-    }
-  }
 }
 
 /** Deep copy a lexical document. Used to build a target from a source. */

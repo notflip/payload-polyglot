@@ -248,12 +248,24 @@ export const applyHandler =
       } satisfies ApplyResponse)
     } catch (error) {
       if (transaction) await req.payload.db.rollbackTransaction(transaction)
-      const message = error instanceof Error ? error.message : 'apply failed'
-      const validation = message.toLowerCase().includes('validation')
-      return json(validation ? 400 : 500, {
+      // A field of the project refused the value, such as an e-mail that holds
+      // a tag nobody supplies. Payload's own message only names the field; the
+      // reason is in its list of errors, so that list is the answer.
+      const errors = ((error as AnyData)?.data?.errors ?? []) as { path?: string; label?: string; message?: string }[]
+      if ((error as AnyData)?.name === 'ValidationError' || errors.length > 0) {
+        return json(400, {
+          ok: false,
+          code: 'validation',
+          message:
+            errors.map((entry) => [entry.label ?? entry.path, entry.message].filter(Boolean).join(': ')).join(' ') ||
+            (error instanceof Error ? error.message : 'the project refused the value'),
+          paths: errors.map((entry) => entry.path).filter((path): path is string => Boolean(path)),
+        } satisfies ApplyResponse)
+      }
+      return json(500, {
         ok: false,
-        code: validation ? 'validation' : 'error',
-        message,
+        code: 'error',
+        message: error instanceof Error ? error.message : 'apply failed',
         details: (error as AnyData)?.data,
       } satisfies ApplyResponse)
     }

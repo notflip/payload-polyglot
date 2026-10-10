@@ -425,7 +425,6 @@ button correctly.
 
 ```bash
 pnpm build       # compile to dist
-pnpm test        # 106 unit tests, no database needed
 pnpm typecheck
 ```
 
@@ -441,7 +440,7 @@ copied out to a repository of its own. From the root of the monorepo:
 pnpm publish:plugin "What changed"
 ```
 
-That builds, runs the tests, copies the folder into a clone of
+That builds, copies the folder into a clone of
 `notflip/payload-polyglot` and pushes one commit on top. It refuses to run
 while the package has uncommitted changes, and it never rewrites the history:
 a project lockfile points at a commit by its hash, and a rewrite would break
