@@ -53,6 +53,22 @@ export type LeafDescriptor = {
   components?: ComponentDescriptor[]
   /** The sections and rows above this field. Absent for a field at the top. */
   trail?: TrailStep[]
+  /** Rich text only: what the editor of this field allows. */
+  editor?: EditorDescriptor
+}
+
+/**
+ * The features of one rich text editor, as Payload resolved them.
+ *
+ * Lexical is set up per field: one field allows bold and italic only, another
+ * headings, lists and uploads. The hub offers exactly these, so a translation
+ * never holds something Payload would not let an editor write.
+ */
+export type EditorDescriptor = {
+  /** The keys Payload uses, such as `bold`, `heading`, `link`, `orderedList`. */
+  features: string[]
+  /** The heading sizes the `heading` feature allows, such as `h2` and `h3`. */
+  headingSizes?: string[]
 }
 
 export type ContainerDescriptor = {

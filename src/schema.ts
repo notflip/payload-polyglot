@@ -1,6 +1,7 @@
 import type {
   ComponentDescriptor,
   ContainerDescriptor,
+  EditorDescriptor,
   EntityManifest,
   LeafDescriptor,
   LeafKind,
@@ -32,6 +33,8 @@ type LeafNode = {
   localized: boolean
   /** Rich text only: what the editor allows to be embedded in the text. */
   components?: ComponentDescriptor[]
+  /** Rich text only: the features of the editor. */
+  editor?: EditorDescriptor
 }
 
 /** A group, a named tab, or a transparent wrapper (row, collapsible, unnamed tab). */
@@ -83,6 +86,20 @@ function findTitleField(children: SchemaNode[]): string | undefined {
     }
   }
   return undefined
+}
+
+/**
+ * The features of a rich text editor, read from the config Payload resolved.
+ * The map holds one entry per feature, under the key Payload knows it by.
+ */
+function readEditor(field: AnyField): EditorDescriptor | undefined {
+  const map = field.editor?.editorConfig?.resolvedFeatureMap
+  if (!map || typeof map.keys !== 'function') return undefined
+  const sizes = map.get('heading')?.sanitizedServerFeatureProps?.enabledHeadingSizes
+  return {
+    features: [...map.keys()].map(String),
+    ...(Array.isArray(sizes) ? { headingSizes: sizes.map(String) } : {}),
+  }
 }
 
 /**
@@ -277,9 +294,11 @@ export function walkFields(
 
     const { kind, translatable } = classifyLeaf(type)
     const components = type === 'richText' ? readComponents(field, lang) : []
+    const editor = type === 'richText' ? readEditor(field) : undefined
     nodes.push({
       nodeKind: 'leaf',
       ...(components.length > 0 ? { components } : {}),
+      ...(editor ? { editor } : {}),
       name,
       type,
       label: readLabel(field.label, name, lang),
@@ -329,6 +348,7 @@ export function describeTree(nodes: SchemaNode[]): {
         }
         if (blockSlug) descriptor.blockSlug = blockSlug
         if (node.components) descriptor.components = node.components
+        if (node.editor) descriptor.editor = node.editor
         if (trail.length > 0) descriptor.trail = trail
         leaves.push(descriptor)
         continue
