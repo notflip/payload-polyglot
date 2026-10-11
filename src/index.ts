@@ -4,6 +4,7 @@ import type { PolyglotOptions } from './endpoints/http.js'
 import { manifestHandler } from './endpoints/manifest.js'
 import { readHandler } from './endpoints/read.js'
 import { refreshHandler } from './endpoints/refresh.js'
+import { copyHandler } from './endpoints/copy.js'
 import { reportHandler } from './endpoints/report.js'
 import { stringsGlobal } from './strings/global.js'
 
@@ -26,6 +27,7 @@ export * from './types.js'
  * - `GET  /read`      the full values of one document in two locales
  * - `POST /apply`     write translations into one locale
  * - `POST /refresh`   let the project drop the caches of one document, once
+ * - `POST /copy`      copy one language into another, with Payload's "Copy to locale"
  *
  * With `strings`, it also adds the global that holds the fixed words of the
  * interface. See `stringsGlobal` and `polyglotMessages`.
@@ -48,6 +50,7 @@ export const polyglotPlugin =
         { path: `${base}/read`, method: 'get', handler: readHandler(options) },
         { path: `${base}/apply`, method: 'post', handler: applyHandler(options) },
         { path: `${base}/refresh`, method: 'post', handler: refreshHandler(options) },
+        { path: `${base}/copy`, method: 'post', handler: copyHandler(options) },
       ] as Config['endpoints'],
     }
   }

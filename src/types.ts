@@ -270,6 +270,18 @@ export type RefreshRequest = {
   state: DocState
 }
 
+/** Copy one language of a document into another, as "Copy to locale" in the admin panel does. */
+export type CopyRequest = {
+  entity: { kind: EntityKind; slug: string }
+  id?: string | number
+  from: string
+  to: string
+  /** Replace what the target holds, too. Without it only its empty fields are filled. */
+  overwrite?: boolean
+}
+
+export type CopyResponse = { ok: true; updatedAt: string } | { ok: false; code: string; message: string }
+
 export type RefreshResponse = { ok: true; updatedAt: string } | { ok: false; code: string; message: string }
 
 export type ApplyResponse =
